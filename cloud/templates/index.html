@@ -4,381 +4,80 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Iluminación</title>
-
-  <style>
-    *{
-      margin:0;
-      padding:0;
-      box-sizing:border-box;
-      font-family: Arial, Helvetica, sans-serif;
-    }
-
-    body{
-      background:#f5f5f5;
-      padding:40px;
-      color:#333;
-    }
-
-    .container{
-      max-width:1000px;
-      margin:auto;
-      background:white;
-      border:2px solid #ccc;
-      padding:30px;
-    }
-
-    h1{
-      text-align:center;
-      margin-bottom:40px;
-      font-size:28px;
-    }
-
-    .top-bar{
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      margin-bottom:30px;
-    }
-
-    .top-bar h2{
-      font-size:22px;
-      font-weight:normal;
-    }
-
-    .btn{
-      padding:12px 25px;
-      border:2px solid #555;
-      background:white;
-      cursor:pointer;
-      font-size:16px;
-      transition:0.2s;
-    }
-
-    .btn:hover{
-      background:#eee;
-    }
-
-    .lights-box{
-      border:2px solid #aaa;
-      padding:40px 20px;
-    }
-
-    .lights{
-      display:flex;
-      justify-content:space-around;
-      flex-wrap:wrap;
-      gap:30px;
-      margin-bottom:40px;
-    }
-
-    .light-card{
-      text-align:center;
-    }
-
-    .circle{
-      width:60px;
-      height:60px;
-      border-radius:50%;
-      margin:auto;
-      border:3px solid #555;
-      margin-bottom:12px;
-    }
-
-    .red{
-      background:#ff3b30;
-    }
-
-    .yellow{
-      background:#edd539;
-    }
-
-    .green{
-      background:#7ed957;
-    }
-
-    .white{
-      background:#f5f5f5;
-    }
-
-    .rgb{
-      background:#8d6e63;
-    }
-
-    .switch{
-      margin-top:20px;
-    }
-
-    .switch input{
-      width:22px;
-      height:22px;
-      cursor:pointer;
-    }
-
-    .rgb-controls{
-      margin-top:20px;
-      display:flex;
-      gap:10px;
-      justify-content:center;
-    }
-
-    .rgb-controls input{
-      width:100px;
-      height:40px;
-      border:2px solid #777;
-      padding:5px;
-    }
-
-    .bottom-buttons{
-      display:flex;
-      justify-content:center;
-      gap:40px;
-      margin-top:20px;
-    }
-  </style>
+  <link rel="stylesheet" href="estilos.css">
+  <script src="script.js" defer></script>
 </head>
-
 <body>
 
-  <div class="container">
+  <div class="contenedor">
 
     <h1>Iluminación</h1>
 
-    <div class="top-bar">
+    <div class="barra-superior">
       <h2>Iluminación Casa 1</h2>
-      <button id="btnActualizar" class="btn">Actualizar</button>
+      <div class="zona-actualizar">
+        <span id="mensaje-error" class="mensaje-error"></span>
+        <button id="btn-actualizar" class="btn">Actualizar</button>
+      </div>
     </div>
 
-    <div class="lights-box">
+    <div class="caja-luces">
 
-      <div class="lights">
+      <div class="luces">
 
-        <div class="light-card">
-          <div class="circle red"></div>
+        <div class="tarjeta-luz">
+          <div class="circulo rojo"></div>
           <p>Led Rojo</p>
-
-          <div class="switch">
-            <input type="checkbox" id="ledRojo">
+          <div class="interruptor">
+            <input type="checkbox" id="casilla-led-roja">
           </div>
         </div>
 
-        <div class="light-card">
-          <div class="circle yellow"></div>
+        <div class="tarjeta-luz">
+          <div class="circulo amarillo"></div>
           <p>Led Amarillo</p>
-
-          <div class="switch">
-            <input type="checkbox" id="ledAmarillo">
+          <div class="interruptor">
+            <input type="checkbox" id="casilla-led-amarilla">
           </div>
         </div>
 
-        <div class="light-card">
-          <div class="circle green"></div>
+        <div class="tarjeta-luz">
+          <div class="circulo verde"></div>
           <p>Led Verde</p>
-
-          <div class="switch">
-            <input type="checkbox" id="ledVerde">
+          <div class="interruptor">
+            <input type="checkbox" id="casilla-led-verde">
           </div>
         </div>
 
-        <div class="light-card">
-          <div class="circle white"></div>
+        <div class="tarjeta-luz">
+          <div class="circulo blanco"></div>
           <p>Led Puerta</p>
-
-          <div class="switch">
-            <input type="checkbox" id="ledPuerta">
+          <div class="interruptor">
+            <input type="checkbox" id="casilla-led-puerta">
           </div>
         </div>
 
-        <div class="light-card">
-          <div class="circle rgb"></div>
-          <p>RGB</p>
-
-          <div class="rgb-controls">
-            <input type="color" value="#8d6e63">
-            <button class="btn">Poner</button>
+        <div class="tarjeta-luz">
+          <div class="circulo led-rgb"></div>
+          <p>Led RGB</p>
+          <div class="controles-rgb">
+            <input type="color" id="selector-color" value="#8d6e63">
+            <div class="interruptor">
+              <input type="checkbox" id="casilla-led-rgb">
+            </div>
           </div>
         </div>
 
       </div>
 
-      <div class="bottom-buttons">
-        <button class="btn">Encender Todo</button>
-        <button class="btn">Apagar Todo</button>
+      <div class="botones-inferiores">
+        <button id="btn-encender-todo" class="btn">Encender Todo</button>
+        <button id="btn-apagar-todo" class="btn">Apagar Todo</button>
       </div>
 
     </div>
 
   </div>
-
-  <script>
-    const ledRojo = document.getElementById('ledRojo');
-    const ledAmarillo = document.getElementById('ledAmarillo');
-    const ledVerde = document.getElementById('ledVerde');
-    const ledPuerta = document.getElementById('ledPuerta');
-
-    const switches = [
-      ledRojo,
-      ledAmarillo,
-      ledVerde,
-      ledPuerta
-    ];
-
-    const btnActualizar =
-      document.getElementById('btnActualizar');
-
-    const botones =
-      document.querySelectorAll('.bottom-buttons .btn');
-
-    const btnEncender = botones[0];
-    const btnApagar = botones[1];
-
-    const colorPicker =
-      document.querySelector('.rgb-controls input');
-
-    const rgbCircle =
-      document.querySelector('.rgb');
-
-    let estadoLuces = {};
-
-    function obtenerDatosServidor() {
-
-      return new Promise((resolve) => {
-
-        console.log("Consultando servidor...");
-
-        setTimeout(() => {
-
-          const respuestaServidor = {
-            luces: {
-
-              ledRojo: {
-                estado: true
-              },
-
-              ledAmarillo: {
-                estado: false
-              },
-
-              ledVerde: {
-                estado: true
-              },
-
-              ledPuerta: {
-                estado: true
-              },
-
-              rgb: {
-                estado: true,
-                color: "#00aaff"
-              }
-            }
-          };
-
-          console.log(
-            "Respuesta recibida del servidor:"
-          );
-
-          console.log(respuestaServidor);
-
-          resolve(respuestaServidor);
-
-        }, 1500);
-      });
-    }
-
-    function actualizarPagina() {
-
-      ledRojo.checked =
-        estadoLuces.luces.ledRojo.estado;
-
-      ledAmarillo.checked =
-        estadoLuces.luces.ledAmarillo.estado;
-
-      ledVerde.checked =
-        estadoLuces.luces.ledVerde.estado;
-
-      ledPuerta.checked =
-        estadoLuces.luces.ledPuerta.estado;
-
-      rgbCircle.style.background =
-        estadoLuces.luces.rgb.color;
-
-      colorPicker.value =
-        estadoLuces.luces.rgb.color;
-    }
-
-    function generarJSON() {
-
-      estadoLuces = {
-        luces: {
-
-          ledRojo: {
-            estado: ledRojo.checked
-          },
-
-          ledAmarillo: {
-            estado: ledAmarillo.checked
-          },
-
-          ledVerde: {
-            estado: ledVerde.checked
-          },
-
-          ledPuerta: {
-            estado: ledPuerta.checked
-          },
-
-          rgb: {
-            estado: true,
-            color: colorPicker.value
-          }
-        }
-      };
-
-      console.log(
-        "JSON enviado al servidor:"
-      );
-
-      console.log(
-        JSON.stringify(estadoLuces, null, 2)
-      );
-    }
-
-    btnEncender.addEventListener('click', () => {
-
-      switches.forEach(sw => {
-        sw.checked = true;
-      });
-
-      generarJSON();
-    });
-
-    btnApagar.addEventListener('click', () => {
-
-      switches.forEach(sw => {
-        sw.checked = false;
-      });
-
-      generarJSON();
-    });
-
-    colorPicker.addEventListener('input', (e) => {
-
-      rgbCircle.style.background =
-        e.target.value;
-
-      generarJSON();
-    });
-
-    btnActualizar.addEventListener('click', async () => {
-
-      estadoLuces =
-        await obtenerDatosServidor();
-
-      actualizarPagina();
-    });
-
-    btnActualizar.click();
-  </script>
 
 </body>
 </html>

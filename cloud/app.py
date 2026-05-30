@@ -95,31 +95,16 @@ def on_lifecycle_disconnection_AWS(lifecycle_disconnect_data: mqtt5.LifecycleDis
 @app.route("/")
 def index():
 
-    with open("../datos.json") as f:
-        data = json.load(f)
+    try:
+        with open("../datos.json") as f:
+            data = json.load(f)
+        items = data.get("Items", [])
+    except (FileNotFoundError, json.JSONDecodeError):
+        items = []
 
-    items = data["Items"]
-
-    # Obtener lista de casas únicas
-    houses = list(set(item["house"]["S"] for item in items))
-
-    # Casa seleccionada (por defecto la primera)
-    if houses:
-        selected_house = request.args.get("house", houses[0])
-    else:
-        selected_house = None
-
-    ## Si no hay casas no tengo datos
-    if not houses:
-        return render_template(
-            "index.html",
-            timestamps=[],
-            temperature=[],
-            humidity=[],
-            distance=[],
-            houses=[],
-            selected_house=None
-        )
+    # Al haber solo una casa, la definimos directamente
+    houses = ["Casa1"]
+    selected_house = "Casa1"
 
     timestamps = []
     temperature = []
@@ -129,6 +114,7 @@ def index():
     today = datetime.now().date()
 
     for item in items:
+        # Ya no saltamos por casa porque asumimos que todos los datos son de nuestra única casa
         if item["house"]["S"] != selected_house:
             continue
 
