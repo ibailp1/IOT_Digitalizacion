@@ -47,26 +47,27 @@ function enviarCambioServidor() {
   const jsonEstado = construirJsonEstado();
   const casa = obtenerCasaSeleccionada();
 
-  const formulario = document.createElement("form");
-  formulario.method = "POST";
-  formulario.action = "/send";
-
-  const inputMessage = document.createElement("input");
-  inputMessage.type = "hidden";
-  inputMessage.name = "message";
-  inputMessage.value = JSON.stringify(jsonEstado);
-  formulario.appendChild(inputMessage);
-
+  // Creamos un objeto con los datos exactamente igual a como los espera tu Flask
+  const datosFormulario = new URLSearchParams();
+  datosFormulario.append("message", JSON.stringify(jsonEstado));
   if (casa) {
-    const inputHouse = document.createElement("input");
-    inputHouse.type = "hidden";
-    inputHouse.name = "house";
-    inputHouse.value = casa;
-    formulario.appendChild(inputHouse);
+    datosFormulario.append("house", casa);
   }
 
-  document.body.appendChild(formulario);
-  formulario.submit();
+  // Enviamos los datos de fondo (asíncronamente) sin molestar al navegador
+  fetch("/send", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: datosFormulario
+  })
+  .then(response => {
+    console.log("Estado enviado a Flask con éxito (sin recargar)");
+  })
+  .catch(error => {
+    console.error("Error al enviar el cambio:", error);
+  });
 }
 
 btnActualizar.addEventListener("click", function () {
@@ -92,8 +93,13 @@ btnApagarTodo.addEventListener("click", function () {
   enviarCambioServidor();
 });
 
-selectorColor.addEventListener("change", function (e) {
+selectorColor.addEventListener("input", function (e) {
+  // Actualiza el color del circulito en tiempo real
   circuloRgb.style.background = e.target.value;
+});
+
+selectorColor.addEventListener("change", function () {
+  // Envía el JSON a AWS IoT SOLO cuando el usuario suelte el clic definitivo
   enviarCambioServidor();
 });
 
