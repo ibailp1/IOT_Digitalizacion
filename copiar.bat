@@ -63,7 +63,7 @@ IF DEFINED ruta_subcarpeta (
 
 )
 
-SET "ruta_archivo_pem=../casa-iot-nube.pem"
+SET "ruta_archivo_pem=../casa-iot-%cosa%.pem"
 
 IF NOT EXIST %ruta_archivo_pem% (
 

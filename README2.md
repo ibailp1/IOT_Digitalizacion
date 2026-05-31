@@ -22,7 +22,7 @@ No hace falta ninguna librería especial para generar el JSON desde el Arduino. 
 
 
 
-En lugar de hacer un bucle que constantemente comprueba si hay información nueva, he utilziado el módulo "selectors" de Python, basado en eventos, para que el sistema operative notifique a la Raspberry en el momento que haya tráfico en el descriptor de archivo del serial.
+En lugar de hacer un bucle que constantemente comprueba si hay información nueva, he utilziado el módulo "selectors" de Python, basado en eventos, para que el sistema operativo notifique a la Raspberry en el momento que haya tráfico en el descriptor de archivo del serial.
 
 
 
@@ -77,6 +77,4 @@ Para ejecutar la app, desde /home/ec2-user/casa-iot/cloud:
 
 
 python3 app.py
-
-
 
