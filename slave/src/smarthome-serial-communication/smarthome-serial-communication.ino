@@ -1,19 +1,19 @@
 /*
    ______            __                  _            __                __________
   / ____/_  ______ _/ /__________ _   __(_)__  ____  / /_____  _____   / ____/  _/
- / /   / / / / __ `/ __/ ___/ __ \ | / / / _ \/ __ \/ __/ __ \/ ___/  / /    / /  
-/ /___/ /_/ / /_/ / /_/ /  / /_/ / |/ / /  __/ / / / /_/ /_/ (__  )  / /____/ /   
-\____/\__,_/\__,_/\__/_/   \____/|___/_/\___/\_/ /_/\__/\____/____/   \____/___/   
-                                                                                
-    __             ___              __             ______   __   
-   / /_  __  __   /   |  ____  ____/ /__  _____   / ____/  / /   
-  / __ \/ / / /  / /| | / __ \/ __  / _ \/ ___/  / /_     / /    
- / /_/ / /_/ /  / ___ |/ / / / /_/ /  __/ /     / __/  _ / /____ 
+ / /   / / / / __ `/ __/ ___/ __ \ | / / / _ \/ __ \/ __/ __ \/ ___/  / /    / /
+/ /___/ /_/ / /_/ / /_/ /  / /_/ / |/ / /  __/ / / / /_/ /_/ (__  )  / /____/ /
+\____/\__,_/\__,_/\__/_/   \____/|___/_/\___/\_/ /_/\__/\____/____/   \____/___/
+
+    __             ___              __             ______   __
+   / /_  __  __   /   |  ____  ____/ /__  _____   / ____/  / /
+  / __ \/ / / /  / /| | / __ \/ __  / _ \/ ___/  / /_     / /
+ / /_/ / /_/ /  / ___ |/ / / / /_/ /  __/ /     / __/  _ / /____
 /_.___/\__, /  /_/  |_/_/ /_/\__,_/\___/\_/     /_/    (_)_____(_)
-      /____/   
-                                           
+      /____/
+
  Smarthome Serial Communication Project
- 
+
  This project integrates all the smarthome lessons into a single Arduino sketch.
  It uses Serial communication for requests and results.
 
@@ -30,13 +30,13 @@
 
 // Pin Definitions
 #define redLED 13
-#define greenLED 12
+#define greenLED 10
 #define buzzer 5
 #define flame_sensor A1
 #define sound_sensor A2
 #define motion_sensor 4
 #define whiteLED 9
-#define yellowLED 10
+#define yellowLED 12
 #define Trig_PIN 25
 #define Echo_PIN 26
 #define SERVO_PIN 3
@@ -122,7 +122,7 @@ void loop() {
 
   // Handle Keypad Input
   handleKeypad();
-  
+
   // Handle RFID
   handleRFID();
 }
@@ -135,58 +135,136 @@ void executeCommand(String cmd) {
   Serial.println(cmd);
 
   if (cmd.startsWith("led")) {
-    if (cmd.indexOf("on") > 0) {
-      digitalWrite(LED_BUILTIN, HIGH);
-      Serial.println("Result: LED is ON");
-    } else if (cmd.indexOf("off") > 0) {
-      digitalWrite(LED_BUILTIN, LOW);
-      Serial.println("Result: LED is OFF");
-    }
+    handleLedCommand(cmd);
   } else if (cmd.startsWith("rgb")) {
-    if (cmd.indexOf("red") > 0) {
-      color(255, 0, 0);
-      Serial.println("Result: RGB set to RED");
-    } else if (cmd.indexOf("green") > 0) {
-      color(0, 255, 0);
-      Serial.println("Result: RGB set to GREEN");
-    } else if (cmd.indexOf("blue") > 0) {
-      color(0, 0, 255);
-      Serial.println("Result: RGB set to BLUE");
-    }
+    handleRgbCommand(cmd);
+  } else if (cmd.startsWith("all")) {
+    handleAllCommand(cmd);
   } else if (cmd.startsWith("buzzer")) {
-    if (cmd.indexOf("on") > 0) {
-      digitalWrite(buzzer, HIGH);
-      Serial.println("Result: Buzzer is ON");
-    } else if (cmd.indexOf("off") > 0) {
-      digitalWrite(buzzer, LOW);
-      Serial.println("Result: Buzzer is OFF");
-    }
+    handleBuzzerCommand(cmd);
   } else if (cmd.startsWith("sensors")) {
     readAllSensors();
   } else if (cmd.startsWith("servo")) {
-      if (cmd.indexOf("open") > 0) {
-        open_door();
-        Serial.println("Result: Servo OPEN");
-      } else if (cmd.indexOf("half") > 0) {
-        half_open();
-        Serial.println("Result: Servo HALF-OPEN");
-      } else if (cmd.indexOf("close") > 0) {
-        close_door();
-        Serial.println("Result: Servo CLOSE");
-      }
+    handleServoCommand(cmd);
   } else if (cmd.startsWith("lcd")) {
-      int firstQuote = cmd.indexOf('"');
-      int secondQuote = cmd.lastIndexOf('"');
-      if (firstQuote != -1 && secondQuote != -1 && firstQuote != secondQuote) {
-        String msg = cmd.substring(firstQuote + 1, secondQuote);
-        lcd.clear();
-        lcd.backlight();
-        lcd.print(msg);
-        Serial.println("Result: LCD message sent");
-      }
+    handleLcdCommand(cmd);
   } else {
     Serial.println("Unknown command");
   }
+}
+
+void handleLedCommand(String cmd) {
+  bool turnOn  = cmd.indexOf("on")  > 0;
+  bool turnOff = cmd.indexOf("off") > 0;
+
+  if (cmd.indexOf("all") > 0) {
+    setAllLights(turnOn, turnOff);
+    return;
+  }
+  if (cmd.indexOf("red") > 0)    applyLed(redLED,    "LedRojo",     turnOn, turnOff);
+  if (cmd.indexOf("green") > 0)  applyLed(greenLED,  "LedVerde",    turnOn, turnOff);
+  if (cmd.indexOf("yellow") > 0) applyLed(yellowLED, "LedAmarillo", turnOn, turnOff);
+  if (cmd.indexOf("white") > 0)  applyLed(whiteLED,  "LedBlanco",   turnOn, turnOff);
+  if (cmd.indexOf("rgb") > 0)    handleLedRgbHex(cmd);
+}
+
+void handleAllCommand(String cmd) {
+  bool turnOn  = cmd.indexOf("on")  > 0;
+  bool turnOff = cmd.indexOf("off") > 0;
+  setAllLights(turnOn, turnOff);
+}
+
+void setAllLights(bool turnOn, bool turnOff) {
+  if (turnOn) {
+    digitalWrite(redLED, HIGH);
+    digitalWrite(greenLED, HIGH);
+    digitalWrite(yellowLED, HIGH);
+    digitalWrite(whiteLED, HIGH);
+    color(255, 255, 255);
+    Serial.println("Result: All lights ON");
+  } else if (turnOff) {
+    digitalWrite(redLED, LOW);
+    digitalWrite(greenLED, LOW);
+    digitalWrite(yellowLED, LOW);
+    digitalWrite(whiteLED, LOW);
+    color(0, 0, 0);
+    Serial.println("Result: All lights OFF");
+  }
+}
+
+void applyLed(int pin, const char* label, bool turnOn, bool turnOff) {
+  if (turnOn) {
+    digitalWrite(pin, HIGH);
+    Serial.print("Result: ");
+    Serial.print(label);
+    Serial.println(" ON");
+  } else if (turnOff) {
+    digitalWrite(pin, LOW);
+    Serial.print("Result: ");
+    Serial.print(label);
+    Serial.println(" OFF");
+  }
+}
+
+void handleLedRgbHex(String cmd) {
+  int hashPos = cmd.indexOf('#');
+  if (hashPos == -1 || cmd.length() < (unsigned)(hashPos + 7)) return;
+
+  String hexColor = cmd.substring(hashPos + 1, hashPos + 7);
+  int r = strtol(hexColor.substring(0, 2).c_str(), NULL, 16);
+  int g = strtol(hexColor.substring(2, 4).c_str(), NULL, 16);
+  int b = strtol(hexColor.substring(4, 6).c_str(), NULL, 16);
+  color(r, g, b);
+  Serial.print("Result: RGB set to #");
+  Serial.println(hexColor);
+}
+
+void handleRgbCommand(String cmd) {
+  if (cmd.indexOf("red") > 0) {
+    color(255, 0, 0);
+    Serial.println("Result: RGB set to RED");
+  } else if (cmd.indexOf("green") > 0) {
+    color(0, 255, 0);
+    Serial.println("Result: RGB set to GREEN");
+  } else if (cmd.indexOf("blue") > 0) {
+    color(0, 0, 255);
+    Serial.println("Result: RGB set to BLUE");
+  }
+}
+
+void handleBuzzerCommand(String cmd) {
+  if (cmd.indexOf("on") > 0) {
+    digitalWrite(buzzer, HIGH);
+    Serial.println("Result: Buzzer is ON");
+  } else if (cmd.indexOf("off") > 0) {
+    digitalWrite(buzzer, LOW);
+    Serial.println("Result: Buzzer is OFF");
+  }
+}
+
+void handleServoCommand(String cmd) {
+  if (cmd.indexOf("open") > 0) {
+    open_door();
+    Serial.println("Result: Servo OPEN");
+  } else if (cmd.indexOf("half") > 0) {
+    half_open();
+    Serial.println("Result: Servo HALF-OPEN");
+  } else if (cmd.indexOf("close") > 0) {
+    close_door();
+    Serial.println("Result: Servo CLOSE");
+  }
+}
+
+void handleLcdCommand(String cmd) {
+  int firstQuote = cmd.indexOf('"');
+  int secondQuote = cmd.lastIndexOf('"');
+  if (firstQuote == -1 || secondQuote == -1 || firstQuote == secondQuote) return;
+
+  String msg = cmd.substring(firstQuote + 1, secondQuote);
+  lcd.clear();
+  lcd.backlight();
+  lcd.print(msg);
+  Serial.println("Result: LCD message sent");
 }
 
 void readAllSensors() {
