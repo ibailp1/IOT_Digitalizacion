@@ -38,6 +38,14 @@ Al cargar la app web, leemos desde dynamodb la telemetría de las últimas 24 ho
 
 
 
+\#ÚLTIMA HORA
+
+
+
+He perdido acceso al Learner Lab de AWS Academy porque según ellos "Ha terminado el curso", así que he tenido que implementar una simulación de MQTT. Como se supone que son dos procesos python separados, porque están en dos ordenadores distintos, he mantenido eso. Pero ahora hay un modo "simulación mqtt" que cuando se active, está preparado para que tanto el servidor web como el administrador de la casa se ejecuten en el mismo sitio, y se comunican a través de memoria compartida. Para cambiar el código lo mínimo posible, he cogido las colas donde se metían las publicaciones de mqtt cuando se recibían de IOT Core, y he expuesto esa zona de la memoria al otro proceso. Esto también se podría hacer de manera remota, y es la manera de cambiar menos código.
+
+
+
 
 
 \#CONFIGURACIÓN

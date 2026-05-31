@@ -22,14 +22,23 @@ IF NOT "%cosa%"=="cloud" IF NOT "%cosa%"=="master" (
 
 )
 
-SET "nombre_usuario="
+SET "nombre_usuario=%~2"
+
+IF NOT DEFINED nombre_usuario (
+
+	ECHO [ERROR] Falta especificar el parámetro #2: El nombre de usuario remoto.
+
+	ENDLOCAL
+
+	EXIT /B 1
+
+)
+
 SET "parametros_scp="
 
 SET ruta_archivo_pem="../ec2-user-casa-iot-cloud.pem"
 
-IF "%cosa%"=="cloud" (
-
-	SET "nombre_usuario=ec2-user"
+IF "%nombre_usuario%"=="ec2-user" (
 
 	IF NOT EXIST %ruta_archivo_pem% (
 
@@ -51,11 +60,11 @@ IF "%cosa%"=="master" (
 
 )
 
-SET "direccion_ip=%~2"
+SET "direccion_ip=%~3"
 
 IF NOT DEFINED direccion_ip (
 
-	ECHO [ERROR] Falta especificar el parámetro #2: La dirección IP pública de la instancia EC2 / de la Raspberry.
+	ECHO [ERROR] Falta especificar el parámetro #3: La dirección IP pública de la instancia EC2 / de la Raspberry.
 
 	ENDLOCAL
 
@@ -63,8 +72,8 @@ IF NOT DEFINED direccion_ip (
 
 )
 
-SET "ruta_subcarpeta=%~3"
-SET "ruta_archivo=%~4"
+SET "ruta_subcarpeta=%~4"
+SET "ruta_archivo=%~5"
 
 SET "ruta_origen=%CD:\=/%/%cosa%/"
 SET "ruta_destino=/home/%nombre_usuario%/casa-iot/"
@@ -73,7 +82,7 @@ IF DEFINED ruta_subcarpeta (
 
 	IF NOT DEFINED ruta_archivo (
 
-		ECHO [ERROR] La ruta especificada en el parámetro #3 ^(opcional^) se asume que es un directorio, y debe ir acompañada de un parámetro #4 para que SCP no haga de las suyas.
+		ECHO [ERROR] La ruta especificada en el parámetro #5 ^(opcional^) se asume que es un directorio, y debe ir acompañada de un parámetro #5 para que SCP no haga de las suyas.
 
 		ENDLOCAL
 
