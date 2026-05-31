@@ -1,249 +1,465 @@
-import json
+import sys
 import subprocess
 import threading
-from flask import Flask, render_template, request, redirect, url_for
+
+import json
 from datetime import datetime, timedelta
 
 from awsiot import mqtt5_client_builder
 from awscrt import mqtt5
 
+import boto3
+
+from flask import Flask, render_template, request, redirect, url_for
+
 app = Flask(__name__)
 
-# Properties for connecting to AWSIOTCore
+aws_iot_core_endpoint="a2xyhr7rc9cefs-ats.iot.us-east-1.amazonaws.com"
+
+aws_iot_core_ruta_archivo_certificado="cert/casita-1.cert.pem"
+aws_iot_core_ruta_archivo_llave_privada="cert/casita-1.private.key"
+
+mqtt_identificador_cliente="randal"
+mqtt_nombre_dispositivo="casita-1"
+
+mqtt_tema_datos_telemetria="datos/telemetria"
+mqtt_tema_datos_estado_luces="datos/estado-luces"
+mqtt_tema_solicitud_estado_luces="solicitud/estado-luces"
+mqtt_tema_comando_luces="comando/luces"
+
+codigo_mensaje_datos_telemetria="datos-telemetria"
+codigo_mensaje_datos_estado_luces="datos-estado-luces"
+codigo_mensaje_solicitud_estado_luces="solicitud-estado-luces"
+codigo_mensaje_comando_luces="comando-luces"
+
+nombre_tabla_datos_telemetria = "datos-telemetria"
 
 connection_success_event = threading.Event()
 stopped_event = threading.Event()
 received_all_event = threading.Event()
-endpoint_AWS="a2xyhr7rc9cefs-ats.iot.us-east-1.amazonaws.com"
-cert_filepath_AWS="cert/Control.cert.pem"
-pri_key_filepath_AWS="cert/Control.private.key"
-clientId_AWS="Control"
-message_topic_commands_AWS="command"
-client = None
-iot_connected = False
-TIMEOUT_CONNECT_AWS = 100
 
-# Connection to AWS
-def connect_to_aws():
+mqtt_client_aws_iot_core = None
+aws_iot_core_estado_conexion_activa = False
+TIEMPO_ESPERA_CONEXION_AWS_IOT_CORE = 5 # Segundos
+    
+mqtt_client_dynamodb = boto3.mqtt_client_aws_iot_core("dynamodb")
 
-    global client, iot_connected
+cola_publicaciones_mqtt = queue.Queue()
+evento_terminar_proceso = threading.Event()
 
-    # Create MQTT5 client using mutual TLS via X509 Certificate and Private Key
-    print("==== Creating MQTT5 Client ====\n")
-    client = mqtt5_client_builder.mtls_from_path(
-        endpoint=endpoint_AWS,
-        cert_filepath=cert_filepath_AWS,
-        pri_key_filepath=pri_key_filepath_AWS,
+clientes_esperando_telemetria = []
+clientes_esperando_estado_luces = []
+
+ultimo_estado_luces_recibido = {}
+ultima_telemetria_recibida = {}
+
+def conectar_con_aws_iot_core():
+
+    global mqtt_client_aws_iot_core, aws_iot_core_estado_conexion_activa
+
+    # Creation of MQTT5 mqtt_client_aws_iot_core using mutual TLS via X509 Certificate and Private Key
+    mqtt_client_aws_iot_core = mqtt5_client_builder.mtls_from_path(
+        endpoint=aws_iot_core_endpoint,
+        cert_filepath=aws_iot_core_ruta_archivo_certificado,
+        pri_key_filepath=aws_iot_core_ruta_archivo_llave_privada,
         on_publish_received=on_publish_received_AWS,
         on_lifecycle_stopped=on_lifecycle_stopped_AWS,
         on_lifecycle_attempting_connect=on_lifecycle_attempting_connect_AWS,
         on_lifecycle_connection_success=on_lifecycle_connection_success_AWS,
         on_lifecycle_connection_failure=on_lifecycle_connection_failure_AWS,
         on_lifecycle_disconnection=on_lifecycle_disconnection_AWS,
-        client_id=clientId_AWS)
+        client_id=mqtt_identificador_cliente)
+    mqtt_client_aws_iot_core.start()
+
+    if not connection_success_event.wait(TIEMPO_ESPERA_CONEXION_AWS_IOT_CORE):
+        return "Tiempo de espera agotado en el intento de conexión con AWS."
+
+    try:
+
+        mqtt_tema = mqtt_tema_datos_estado_luces
+        subscribe_future = mqtt_client_aws_iot_core.subscribe(
+        subscribe_packet=mqtt5.SubscribePacket(
+            subscriptions = [
+            mqtt5.Subscription(
+                topic_filter = mqtt_tema,
+                qos = mqtt5.QoS.AT_LEAST_ONCE
+            )]
+        ))
+        suback = subscribe_future.result(TIEMPO_ESPERA_CONEXION_AWS_IOT_CORE)
+
+        mqtt_tema = mqtt_tema_datos_telemetria
+        subscribe_future = mqtt_client_aws_iot_core.subscribe(
+        subscribe_packet=mqtt5.SubscribePacket(
+            subscriptions = [
+            mqtt5.Subscription(
+                topic_filter = mqtt_tema,
+                qos = mqtt5.QoS.AT_LEAST_ONCE
+            )]
+        ))
+        suback = subscribe_future.result(TIEMPO_ESPERA_CONEXION_AWS_IOT_CORE)
     
-    # Start the client, instructing the client to desire a connected state. The client will try to 
-    # establish a connection with the provided settings. If the client is disconnected while in this 
-    # state it will attempt to reconnect automatically.
-    print("==== Starting client ====")
-    client.start()
+    except Exception:
+        return "Error al suscribirse al tema MQTT: " + mqtt_tema
 
-    # We await the `on_lifecycle_connection_success` callback to be invoked.
-    if not connection_success_event.wait(TIMEOUT_CONNECT_AWS):
-        raise TimeoutError("Connection timeout")
+    aws_iot_core_estado_conexion_activa = True
+    return None
 
-    iot_connected = True
-
-# Callback when any IOT PUB is received
 def on_publish_received_AWS(publish_packet_data):
+    global cola_publicaciones_mqtt
     publish_packet = publish_packet_data.publish_packet
-    print("==== Received message from topic '{}': {} ====\n".format(
-        publish_packet.topic, publish_packet.payload.decode('utf-8')))
+    cola_publicaciones_mqtt.put(publish_packet.payload)
 
-# Callback for the lifecycle event Stopped
 def on_lifecycle_stopped_AWS(lifecycle_stopped_data: mqtt5.LifecycleStoppedData):
-    print("Lifecycle Stopped\n")
     stopped_event.set()
+    print("Se ha detenido el ciclo de vida de la conexión con AWS IOT Core.\n")
 
-
-# Callback for lifecycle event Attempting Connect
 def on_lifecycle_attempting_connect_AWS(lifecycle_attempting_connect_data: mqtt5.LifecycleAttemptingConnectData):
-    print("Lifecycle Connection Attempt\nConnecting to endpoint: '{}' with client ID'{}'".format(
-        endpoint_AWS, clientId_AWS))
+    print("Intento de conexión con AWS IOT Core.")
 
 
-# Callback for the lifecycle event Connection Success
 def on_lifecycle_connection_success_AWS(lifecycle_connect_success_data: mqtt5.LifecycleConnectSuccessData):
+    global aws_iot_core_estado_conexion_activa
     connack_packet = lifecycle_connect_success_data.connack_packet
-    print("Lifecycle Connection Success with reason code:{}\n".format(
-        repr(connack_packet.reason_code)))
     connection_success_event.set()
+    aws_iot_core_estado_conexion_activa = True
+    print("Conexión lograda con AWS IOT Core.")
 
-
-# Callback for the lifecycle event Connection Failure
 def on_lifecycle_connection_failure_AWS(lifecycle_connection_failure: mqtt5.LifecycleConnectFailureData):
-    print("Lifecycle Connection Failure with exception:{}".format(
-        lifecycle_connection_failure.exception))
+    global aws_iot_core_estado_conexion_activa
+    aws_iot_core_estado_conexion_activa = False
+    print("Conexión fallida con AWS IOT Core.")
 
-
-# Callback for the lifecycle event Disconnection
 def on_lifecycle_disconnection_AWS(lifecycle_disconnect_data: mqtt5.LifecycleDisconnectData):
-    print("Lifecycle Disconnected with reason code:{}".format(
-        lifecycle_disconnect_data.disconnect_packet.reason_code if lifecycle_disconnect_data.disconnect_packet else "None"))
-
+    global aws_iot_core_estado_conexion_activa
+    aws_iot_core_estado_conexion_activa = False
+    print("Conexión perdida con AWS IOT Core.")
 
 @app.route("/")
 def index():
 
-    try:
-        with open("../datos.json") as f:
-            data = json.load(f)
-        items = data.get("Items", [])
-    except (FileNotFoundError, json.JSONDecodeError):
-        items = []
-
-    # Al haber solo una casa, la definimos directamente
-    houses = ["Casa1"]
-    selected_house = "Casa1"
-
-    timestamps = []
-    temperature = []
-    humidity = []
-    distance = []
-
-    today = datetime.now().date()
-
-    for item in items:
-        # Ya no saltamos por casa porque asumimos que todos los datos son de nuestra única casa
-        if item["house"]["S"] != selected_house:
-            continue
-
-        payload = item.get("payload", {}).get("M", {})
-
-        # Timestamp
-        ts_str = payload.get("timestamp", {}).get("N")
-        if not ts_str:
-            continue  # saltar si no hay timestamp
-        ts = int(ts_str)
-        dt = datetime.fromtimestamp(ts)
-
-        # Filtrar solo datos de hoy
-        if dt.date() != today:
-            continue
-
-        timestamps.append(dt.strftime("%d/%m %H:%M:%S"))
-
-        # Temperatura
-        temp_raw = payload.get("temperature", {}).get("S")
-        if temp_raw:
-            temp = float(temp_raw.replace("C", ""))
-        else:
-            temp = None
-        temperature.append(temp)
-
-        # Humedad
-        hum_raw = payload.get("humidity", {}).get("S")
-        if hum_raw:
-            hum = float(hum_raw.replace("%", ""))
-        else:
-            hum = None
-        humidity.append(hum)
-
-        # Distancia
-        dist_raw = payload.get("distance", {}).get("S")
-        if dist_raw:
-            dist = float(dist_raw.replace(" cm", ""))
-        else:
-            dist = None
-        distance.append(dist)
+    datos_telemetria = obtener_datos_dynamodb_durante_las_ultimas_24_horas(nombre_tabla_datos_telemetria)
 
     return render_template(
         "index.html",
-        timestamps=timestamps,
-        temperature=temperature,
-        humidity=humidity,
-        distance=distance,
-        houses=houses,
-        selected_house=selected_house
+        datos_telemetria = datos_telemetria
     )
 
-@app.route("/send", methods=["POST"])
-def send():
+def parsear_comando_cliente_web():
 
-    import json
+    if "luz-roja" in cuerpo_mensaje:
 
-    message = request.form.get("message")
-    house = request.form.get("house")
+        if "encendida" in cuerpo_mensaje["luz-roja"]:
+
+            if cuerpo_mensaje["luz-roja"]["encendida"] = True:
+                comando = "encender luz roja"
+                return comando
+
+            if cuerpo_mensaje["luz-roja"]["encendida"] = False:
+                comando = "apagar luz roja"
+                return comando
+
+        return None
+
+    if "luz-amarilla" in cuerpo_mensaje:
+
+        if "encendida" in cuerpo_mensaje["luz-amarilla"]:
+
+            if cuerpo_mensaje["luz-amarilla"]["encendida"] = True:
+                comando = "encender luz amarilla"
+                return comando
+
+            if cuerpo_mensaje["luz-amarilla"]["encendida"] = False:
+                comando = "apagar luz amarilla"
+                return comando
+
+        return None
+
+    if "luz-verde" in cuerpo_mensaje:
+
+        if "encendida" in cuerpo_mensaje["luz-verde"]:
+
+            if cuerpo_mensaje["luz-verde"]["encendida"] = True:
+                comando = "encender luz verde"ç
+                return comando
+
+            if cuerpo_mensaje["luz-verde"]["encendida"] = False:
+                comando = "apagar luz verde"
+                return comando
+
+        return None
+
+    if "luz-puerta" in cuerpo_mensaje:
+
+        if "encendida" in cuerpo_mensaje["luz-puerta"]:
+
+            if cuerpo_mensaje["luz-puerta"]["encendida"] = True:
+                comando = "encender luz puerta"
+                return comando
+
+            if cuerpo_mensaje["luz-puerta"]["encendida"] = False:
+                comando = "apagar luz puerta"
+                return comando
+
+        return None
+
+    if "luz-rgb" in cuerpo_mensaje:
+
+        if "encendida" in cuerpo_mensaje["luz-rgb"]:
+
+            if cuerpo_mensaje["luz-rgb"]["encendida"] = True:
+                comando = "encender luz rgb"
+                return comando
+
+            if cuerpo_mensaje["luz-rgb"]["encendida"] = False:
+                comando = "apagar luz rgb"
+                return comando
+
+        if "color" in cuerpo_mensaje["luz-rgb"]:
+            try:
+                int(cuerpo_mensaje["luz-rgb"]["color"], 16)
+            except ValueError:
+                return None
+            comando = "cambiar color luz rgb " + cuerpo_mensaje["luz-rgb"]["color"]
+            return comando
+
+        return None
+
+    return None
+
+@app.route("/enviar-comando", methods=["POST"])
+def enviar_comando():
+
+    global mqtt_client_aws_iot_core, aws_iot_core_estado_conexion_activa
+
+    if not aws_iot_core_estado_conexion_activa: return "Error: Cliente IoT no conectado", 500
 
     try:
-        # Convertir string → dict
-        data = json.loads(message)
+        payload = request.get_json()
+    except Exception:
+        print("Error inesperado al leer JSON del cliente.")
+        return
 
-        # Inyectar house
-        data["house"] = house
+    if not aws_iot_core_estado_conexion_activa: return "Error: Cliente IoT no conectado", 500
 
-        # Volver a string JSON listo para enviar
-        final_message = json.dumps(data)
+    try:
+        cabeza_mensaje = payload["cabeza-mensaje"]
+        cuerpo_mensaje = payload["cuerpo-mensaje"]
+        codigo_mensaje = cabeza_mensaje["codigo-mensaje"]
+    except KeyError:
+        print("Recibido mensaje JSON en mal formato desde el cliente web.")
+        return
+    except Exception:
+        print("Error inesperado al procesar el mensaje de JSON recibido desde el cliente web.")
+        return
 
-        # We send json message to IOTCore AWS
-        if iot_connected:
-            print(f"JSON enviado a IoT: '{message_topic_commands_AWS}': {final_message}")
-            publish_future = client.publish(
-                mqtt5.PublishPacket(
-                    topic=message_topic_commands_AWS,
-                    payload=final_message,
-                    qos=mqtt5.QoS.AT_LEAST_ONCE
-                )
-            )
+    if not codigo_mensaje == codigo_mensaje_comando_luces:
+        print("Recibido mensaje JSON en mal formato desde el cliente web.")
+        return
 
-            publish_completion_data = publish_future.result(TIMEOUT_CONNECT_AWS)
-            print("PubAck received with {}\n".format(repr(publish_completion_data.puback.reason_code)))
+    if not aws_iot_core_estado_conexion_activa: return "Error: Cliente IoT no conectado", 500
 
+    comando = parsear_comando_cliente_web(cuerpo_mensaje)
+    if comando is None:
+        print("Recibido mensaje JSON en mal formato desde el cliente web.")
+        return
 
-    except Exception as e:
-        print("Error procesando JSON:", e)
+    if not aws_iot_core_estado_conexion_activa: return "Error: Cliente IoT no conectado", 500
 
-    if house:
-        return redirect(url_for("index", house=house))
-    else:
-        return redirect(url_for("index"))
+    objeto_futuro_publicacion =
+    mqtt_client_aws_iot_core.publish(mqtt5.PublishPacket(
+        topic=mqtt_tema_comando_luces,
+        payload=json.dumps(payload),
+        qos=mqtt5.QoS.AT_LEAST_ONCE
+    ))
 
-@app.route("/refresh")
-def refresh():
+    for numero_intento in range(CANTIDAD_INTENTOS_CONEXION_PUERTO_SERIAL):
+        if not aws_iot_core_estado_conexion_activa: return "Error: Cliente IoT no conectado", 500
+        numero_intento += 1
+        try:
+            objeto_futuro_publicacion.result(TIEMPO_ESPERA_CONEXION_AWS_IOT_CORE)
+            return "Solicitud enviada al Master correctamente", 200
+        except concurrent.futures.TimeoutError:
+            print("Intento fallido número " + str(numero_intento) + " al conectar con AWS IOT Core.")
+            if numero_intento = CANTIDAD_INTENTOS_CONEXION_PUERTO_SERIAL:
+                print("Se agotó el tiempo de espera al publicar en AWS IOT Core.")
+                return
+            continue
+        except Exception:
+            print("Error inesperado al conectar con AWS IOT Core.")
+            return
 
-    print("Entro en refresh")
-    house = request.form.get("house")
+def obtener_datos_dynamodb_durante_las_ultimas_24_horas(nombre_tabla):
+
+    global mqtt_client_dynamodb
     
-    now = datetime.now()
+    ahora = datetime.now()
+    hace_24_horas = ahora - timedelta(hours=24)
 
-    start_of_day = datetime(now.year, now.month, now.day)
-    end_of_day = start_of_day + timedelta(days=1)
+    end_ts = int(ahora.timestamp())
+    start_ts = int(hace_24_horas.timestamp())
 
-    start_ts = int(start_of_day.timestamp())
-    end_ts = int(end_of_day.timestamp())
+    response = mqtt_client_dynamodb.scan(
+        TableName=nombre_tabla,
+        FilterExpression="#ts BETWEEN :start AND :end",
+        ExpressionAttributeNames={"#ts": "timestamp"},
+        ExpressionAttributeValues={
+            ":start": {"N": str(start_ts)},
+            ":end": {"N": str(end_ts)}
+        }
+    )
+    
+    return response.get("Items", [])
 
-    command = f"""aws dynamodb scan \
-    --table-name telemetry \
-    --filter-expression "#ts BETWEEN :start AND :end" \
-    --expression-attribute-names '{{"#ts":"timestamp"}}' \
-    --expression-attribute-values '{{":start":{{"N":"{start_ts}"}},":end":{{"N":"{end_ts}"}}}}' \
-    --output json > ../datos.json"""
+@app.route("/solicitar-estado-luces")
+def solicitar_estado_luces():
+    global clientes_esperando_estado_luces
 
-    print("Comando ejecutado:")
-    print(command)
+    if not aws_iot_core_estado_conexion_activa: return "Error: Cliente IoT no conectado", 500
 
-    subprocess.run(command, shell=True)
+    payload = {
+        "cabeza-mensaje": {
+            "codigo-mensaje": "solicitud-estado-luces"
+        },
+        "cuerpo-mensaje": {
+            "luz-roja": True,
+            "luz-amarilla": True,
+            "luz-verde": True,
+            "luz-puerta": True,
+            "luz-rgb": True
+        }
+    }
 
-    return redirect(url_for("index", house=house))
+    if not aws_iot_core_estado_conexion_activa: return "Error: Cliente IoT no conectado", 500
+
+    objeto_futuro_publicacion =
+    mqtt_client_aws_iot_core.publish(mqtt5.PublishPacket(
+        topic=mqtt_tema_solicitud_estado_luces,
+        payload=json.dumps(payload),
+        qos=mqtt5.QoS.AT_LEAST_ONCE
+    ))
+
+    for numero_intento in range(CANTIDAD_INTENTOS_CONEXION_PUERTO_SERIAL):
+        if not aws_iot_core_estado_conexion_activa: return "Error: Cliente IoT no conectado", 500
+        numero_intento += 1
+        try:
+            objeto_futuro_publicacion.result(TIEMPO_ESPERA_CONEXION_AWS_IOT_CORE)
+            break
+        except concurrent.futures.TimeoutError:
+            print("Intento fallido número " + str(numero_intento) + " al conectar con AWS IOT Core.")
+            if numero_intento = CANTIDAD_INTENTOS_CONEXION_PUERTO_SERIAL:
+                print("Se agotó el tiempo de espera al publicar en AWS IOT Core.")
+                return
+            continue
+        except Exception:
+            print("Error inesperado al conectar con AWS IOT Core.")
+            return
+
+    evento = threading.Event()
+    with lock:
+        clientes_esperando_estado_luces.append(evento)
+    senalizado = evento.wait(timeout = 5)
+    
+    with lock:
+        if evento in clientes_esperando_estado_luces:
+            clientes_esperando_estado_luces.remove(evento)
+            
+    if senalizado:
+        return json.dumps(ultimo_estado_luces_recibido)
+    else:
+        return json.dumps(None)
+
+@app.route("/esperar-telemetria")
+def esperar_telemetria():
+    global clientes_esperando_telemetria
+
+    evento = threading.Event()
+    with lock:
+        clientes_esperando_telemetria.append(evento)
+    senalizado = evento.wait(timeout = 5)
+    
+    with lock:
+        if evento in clientes_esperando_telemetria:
+            clientes_esperando_telemetria.remove(evento)
+            
+    if senalizado:
+        return json.dumps(ultima_telemetria_recibida)
+    else:
+        return json.dumps(None)
+
+def procesar_publicacion_mqtt(publicacion_mqtt):
+
+    try:
+        payload_string = publicacion_mqtt.decode("utf-8")
+    except json.JSONDecodeError:
+        print("Recibido mensaje UTF-8 en mal formato desde AWS IOT Core.")
+        return
+    except Exception:
+        print("Error inesperado al procesar el mensaje de UTF-8 recibido desde AWS IOT Core.")
+        return
+
+    try:
+        payload = json.loads(payload_string)
+    except json.JSONDecodeError:
+        print("Recibido mensaje JSON en mal formato desde AWS IOT Core.")
+        return
+    except Exception:
+        print("Error inesperado al procesar el mensaje de JSON recibido desde AWS IOT Core.")
+        return
+
+    try:
+        cabeza_mensaje = payload["cabeza-mensaje"]
+        cuerpo_mensaje = payload["cuerpo-mensaje"]
+        codigo_mensaje = cabeza_mensaje["codigo-mensaje"]
+    except KeyError:
+        print("Recibido mensaje JSON en mal formato desde AWS IOT Core.")
+        return
+    except Exception:
+        print("Error inesperado al procesar el mensaje de JSON recibido desde AWS IOT Core.")
+        return
+
+    if codigo_mensaje == codigo_mensaje_datos_estado_luces:
+        ultimo_estado_luces_recibido = cuerpo_mensaje
+        for evento in clientes_esperando_estado_luces:
+            evento.set()
+        clientes_esperando_estado_luces.clear()
+        return
+
+    if codigo_mensaje == codigo_mensaje_datos_telemetria:
+        ultima_telemetria_recibida = cuerpo_mensaje
+        for evento in clientes_esperando_telemetria:
+            evento.set()
+        clientes_esperando_telemetria.clear()
+        return
+
+def manejar_eventos_cola_publicaciones_mqtt():
+    global cola_publicaciones_mqtt
+    while not evento_terminar_proceso.is_set():
+        try:
+            publicacion_mqtt = cola_publicaciones_mqtt.get(timeout=1)
+            if publicacion_mqtt is None:
+                cola_publicaciones_mqtt.task_done()
+                continue
+            procesar_publicacion_mqtt(publicacion_mqtt)
+        except queue.Empty:
+            pass
+        except Exception:
+            print("Ha ocurrido un error inesperado en el momento de leer una publicación de MQTT recibida desde AWS IOT Core.")
+            pass
+        cola_publicaciones_mqtt.task_done()
 
 if __name__ == "__main__":
 
-    # Cnnect to AWS IOTCOre
-    try:
-        connect_to_aws()
-        print("Connected to AWS IoT")
+    mensaje_error_conexion_aws_iot_core = conectar_con_aws_iot_core()
+    if mensaje_error_conexion_aws_iot_core is not None:
+        print(mensaje_error_conexion_aws_iot_core)
+        sys.exit(1)
 
-    except Exception as e:
-        print("Error conectando IOTCore: ", str(e))
+    threading.Thread(
+        target=manejar_eventos_cola_publicaciones_mqtt,
+        daemon=True
+    ).start()
 
     app.run(host="0.0.0.0", port=5001)
+
+    evento_terminar_proceso.set()
+    cola_publicaciones_mqtt.put(None)

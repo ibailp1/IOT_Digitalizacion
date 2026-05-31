@@ -26,6 +26,18 @@ En lugar de hacer un bucle que constantemente comprueba si hay información nuev
 
 
 
+La app web también funciona por eventos. Cuando recibe una publicación MQTT mediante AWS IOT Core, mete la carga útil en una cola, y en el bucle principal, antes de encender la aplicación, ejecuta un hilo en paralelo que escucha eventos en esa cola de publicaciones, procesando cada publicación cada vez que se mete en la cola (cuando llega una publicación MQTT).
+
+
+
+He decidido que la app web no almacenará los datos de dybamodb en un archivo local, sino que directamente carga en memoria los datos que necesita. Tambien, en lugar de generar el timestamp en el momento de leer la telemetría de la DB, lo genero desde la Raspberry cuando la recibe del Arduino.
+
+
+
+Al cargar la app web, leemos desde dynamodb la telemetría de las últimas 24 horas, y cada vez que llegue telemetría nueva, notificamos al cliente web (que estará esperando con un fetch).
+
+
+
 
 
 \#CONFIGURACIÓN
@@ -53,6 +65,12 @@ La script "copier.bat" Tiene dos modos. Puedes copiar el servidor web a cloud y 
 
 
 Puedes especificar en un tercer parámetro la ruta relativa a "repo/cloud/" para especificar una carpeta y un cuarto paráemtro para el nombrer del archivo, y así copiar solo un archivo (es mucho más rápido, útil mientras haces pequeños cambios durante el desarrollo).
+
+
+
+Ejecuta este comando desde la instancia para saber la IP:
+
+curl ifconfig.me
 
 
 

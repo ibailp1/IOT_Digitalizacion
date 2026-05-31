@@ -1,11 +1,11 @@
-const ledRoja = document.getElementById("casilla-led-roja");
-const ledAmarilla = document.getElementById("casilla-led-amarilla");
-const ledVerde = document.getElementById("casilla-led-verde");
-const ledPuerta = document.getElementById("casilla-led-puerta");
-const ledRgbEstado = document.getElementById("casilla-led-rgb");
-const selectorColor = document.getElementById("selector-color");
+const casillaLedRoja = document.getElementById("casilla-led-roja");
+const casillaLedAmarilla = document.getElementById("casilla-led-amarilla");
+const casillaLedVerde = document.getElementById("casilla-led-verde");
+const casillaLedPuerta = document.getElementById("casilla-led-puerta");
+const casillaLedRgb = document.getElementById("casilla-led-rgb");
+const selectorColorRgb = document.getElementById("selector-color-rgb");
 
-const circuloRgb = document.querySelector(".led-rgb");
+const circulitoRgb = document.querySelector(".circulito-led-rgb");
 const btnActualizar = document.getElementById("btn-actualizar");
 const mensajeError = document.getElementById("mensaje-error");
 
@@ -13,98 +13,124 @@ const btnEncenderTodo = document.getElementById("btn-encender-todo");
 const btnApagarTodo = document.getElementById("btn-apagar-todo");
 
 const todosLosInterruptores = [
-  ledRoja,
-  ledAmarilla,
-  ledVerde,
-  ledPuerta,
-  ledRgbEstado
+  casillaLedRoja,
+  casillaLedAmarilla,
+  casillaLedVerde,
+  casillaLedPuerta,
+  casillaLedRgb
 ];
 
-function obtenerCasaSeleccionada() {
-  const urlParams = new URLSearchParams(window.location.search);
-  const casa = urlParams.get("house");
-  return casa;
+function actualizarEstadoLuces(data) {
+  
+  casillaLedRoja.checked = data["estado-luces"]["led-roja"].encendida;
+  casillaLedAmarilla.checked = data["estado-luces"]["led-amarilla"].encendida;
+  casillaLedVerde.checked = data["estado-luces"]["led-verde"].encendida;
+  casillaLedPuerta.checked = data["estado-luces"]["led-puerta"].encendida;
+  casillaLedRgb.checked = data["estado-luces"]["led-rgb"].encendida;
+  selectorColorRgb.value = data["estado-luces"]["led-puerta"].color;
+  
+  circulitoRgb.style.background = selectorColorRgb.value;
 }
 
-function construirJsonEstado() {
-  return {
-    estado: {
-      estadoLuces: {
-        ledRoja: { encendida: ledRoja.checked },
-        ledAmarilla: { encendida: ledAmarilla.checked },
-        ledVerde: { encendida: ledVerde.checked },
-        ledPuerta: { encendida: ledPuerta.checked },
-        ledRgb: { 
-          encendida: ledRgbEstado.checked, 
-          colorRgb: selectorColor.value 
-        }
-      }
-    }
+function enviarComandoLuces(cuerpo_mensaje) {
+
+  const cabeza_mensaje = {
+    "codigo-mensaje": "comando-luces"
   };
-}
 
-function enviarCambioServidor() {
-  const jsonEstado = construirJsonEstado();
-  const casa = obtenerCasaSeleccionada();
+  const payload = {
+    "cabeza-mensaje": cabeza_mensaje,
+    "cuerpo-mensaje": cuerpo_mensaje
+  };
 
-  // Creamos un objeto con los datos exactamente igual a como los espera tu Flask
-  const datosFormulario = new URLSearchParams();
-  datosFormulario.append("message", JSON.stringify(jsonEstado));
-  if (casa) {
-    datosFormulario.append("house", casa);
-  }
-
-  // Enviamos los datos de fondo (asíncronamente) sin molestar al navegador
-  fetch("/send", {
+  fetch("/enviar-comando", {
     method: "POST",
     headers: {
-      "Content-Type": "application/x-www-form-urlencoded"
+      "Content-Type": "application/json"
     },
-    body: datosFormulario
+    body: JSON.stringify(payload)
   })
-  .then(response => {
-    console.log("Estado enviado a Flask con éxito (sin recargar)");
+  .then(function (response) {
+    console.info("Comando enviado.");
+    console.info(payload);
   })
-  .catch(error => {
-    console.error("Error al enviar el cambio:", error);
+  .catch(function (error) {
+    console.error("Error al enviar comando.");
+    console.info(payload);
   });
 }
 
+function solicitarEstadoLuces() {
+  fetch("/solicitar-estado-luces")
+    .then(function (response) { return response.json(); })
+    .then(function (data) {
+      actualizarEstadoLuces(data);
+    })
+    .catch(function (Error) {});
+}
+
+function procesarTelemetria(data) {
+  console.error("NO IMPLEMENTADO");
+}
+
+async function esperarTelemetria() {
+    const response = await fetch("/esperar-telemetria");
+    const data = await response.json();
+    return data;
+}
+
+window.onload = function() {
+    solicitarEstadoLuces();
+};
+
 btnActualizar.addEventListener("click", function () {
-  const casa = obtenerCasaSeleccionada();
-  let url = "/refresh";
-  if (casa) {
-    url = "/refresh?house=" + casa;
-  }
-  window.location.href = url;
+  solicitarEstadoLuces();
 });
 
 btnEncenderTodo.addEventListener("click", function () {
-  todosLosInterruptores.forEach(function (interr) {
-    interr.checked = true;
+  todosLosInterruptores.forEach(function (interruptor) {
+    interruptor.checked = true;
+    const cuerpo_mensaje = {};
+    cuerpo_mensaje[interruptor.dataset["nombreLuz"]] = {
+      "encendida": interruptor.checked
+    };
+    enviarComandoLuces(cuerpo_mensaje);
   });
-  enviarCambioServidor();
 });
 
 btnApagarTodo.addEventListener("click", function () {
-  todosLosInterruptores.forEach(function (interr) {
-    interr.checked = false;
+  todosLosInterruptores.forEach(function (interruptor) {
+    interruptor.checked = false;
+    const cuerpo_mensaje = {};
+    cuerpo_mensaje[interruptor.dataset["nombreLuz"]] = {
+      "encendida": interruptor.checked
+    };
+    enviarComandoLuces(cuerpo_mensaje);
   });
-  enviarCambioServidor();
 });
 
-selectorColor.addEventListener("input", function (e) {
+selectorColorRgb.addEventListener("input", function (argumentos_evento) {
   // Actualiza el color del circulito en tiempo real
-  circuloRgb.style.background = e.target.value;
+  const interruptor = argumentos_evento.target;
+  circulitoRgb.style.background = interruptor.value;
 });
 
-selectorColor.addEventListener("change", function () {
+selectorColorRgb.addEventListener("change", function (argumentos_evento) {
   // Envía el JSON a AWS IoT SOLO cuando el usuario suelte el clic definitivo
-  enviarCambioServidor();
+  const interruptor = argumentos_evento.target;
+  const cuerpo_mensaje = {};
+  cuerpo_mensaje[interruptor.dataset["nombreLuz"]] = {
+    "color": interruptor.value
+  };
+  enviarComandoLuces(cuerpo_mensaje);
 });
 
-todosLosInterruptores.forEach(function (interr) {
-  interr.addEventListener("change", function () {
-    enviarCambioServidor();
+todosLosInterruptores.forEach(function (interruptor) {
+  interruptor.addEventListener("change", function () {
+    const cuerpo_mensaje = {};
+    cuerpo_mensaje[interruptor.dataset["nombreLuz"]] = {
+      "encendida": interruptor.checked
+    };
+    enviarComandoLuces(cuerpo_mensaje);
   });
 });

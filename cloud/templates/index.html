@@ -6,6 +6,29 @@
   <title>Iluminación</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='estilos.css') }}">
   <script src="{{ url_for('static', filename='script.js') }}" defer></script>
+  <canvas id="myChart"></canvas>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script defer>
+      // Flask inyecta los datos directamente aquí
+      const data = {{ datos_telemetria | tojson }};
+
+      // Extraemos los valores para la gráfica
+      const timestamps = data.map(item => item.timestamp.N);
+      const temperaturas = data.map(item => item.temperatura.S.replace('C', ''));
+
+      const ctx = document.getElementById('myChart').getContext('2d');
+      new Chart(ctx, {
+          type: 'line',
+          data: {
+              labels: timestamps,
+              datasets: [{
+                  label: 'Temperatura (°C)',
+                  data: temperaturas,
+                  borderColor: 'rgb(255, 99, 132)'
+              }]
+          }
+      });
+  </script>
 </head>
 <body>
 
@@ -26,44 +49,44 @@
       <div class="luces">
 
         <div class="tarjeta-luz">
-          <div class="circulo rojo"></div>
+          <div class="circulito rojo"></div>
           <p>Led Rojo</p>
           <div class="interruptor">
-            <input type="checkbox" id="casilla-led-roja">
+            <input type="checkbox" id="casilla-led-roja" data-nombre-luz="luz-roja">
           </div>
         </div>
 
         <div class="tarjeta-luz">
-          <div class="circulo amarillo"></div>
+          <div class="circulito amarillo"></div>
           <p>Led Amarillo</p>
           <div class="interruptor">
-            <input type="checkbox" id="casilla-led-amarilla">
+            <input type="checkbox" id="casilla-led-amarilla" data-nombre-luz="luz-amarilla">
           </div>
         </div>
 
         <div class="tarjeta-luz">
-          <div class="circulo verde"></div>
+          <div class="circulito verde"></div>
           <p>Led Verde</p>
           <div class="interruptor">
-            <input type="checkbox" id="casilla-led-verde">
+            <input type="checkbox" id="casilla-led-verde" data-nombre-luz="luz-verde">
           </div>
         </div>
 
         <div class="tarjeta-luz">
-          <div class="circulo blanco"></div>
+          <div class="circulito blanco"></div>
           <p>Led Puerta</p>
           <div class="interruptor">
-            <input type="checkbox" id="casilla-led-puerta">
+            <input type="checkbox" id="casilla-led-puerta" data-nombre-luz="luz-puerta">
           </div>
         </div>
 
         <div class="tarjeta-luz">
-          <div class="circulo led-rgb"></div>
+          <div class="circulito circulito-led-rgb"></div>
           <p>Led RGB</p>
           <div class="controles-rgb">
-            <input type="color" id="selector-color" value="#8d6e63">
+            <input type="color" id="selector-color-rgb" value="#8d6e63">
             <div class="interruptor">
-              <input type="checkbox" id="casilla-led-rgb">
+              <input type="checkbox" id="casilla-led-rgb" data-nombre-luz="luz-rgb">
             </div>
           </div>
         </div>
