@@ -196,6 +196,7 @@ void setAllLights(bool turnOn, bool turnOff) {
     digitalWrite(greenLED, LOW);   ledGreenState  = false;
     digitalWrite(yellowLED, LOW);  ledYellowState = false;
     digitalWrite(whiteLED, LOW);   ledWhiteState  = false;
+
     color(0, 0, 0);
     Serial.println("Result: All lights OFF");
   }
@@ -216,6 +217,7 @@ void applyLed(int pin, const char* label, bool turnOn, bool turnOff) {
     Serial.println(" OFF");
   }
 }
+
 
 void updateLedState(int pin, bool state) {
   if (pin == redLED)         ledRedState    = state;
