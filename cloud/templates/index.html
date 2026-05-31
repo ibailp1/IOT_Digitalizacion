@@ -8,27 +8,6 @@
   <script src="{{ url_for('static', filename='script.js') }}" defer></script>
   <canvas id="myChart"></canvas>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script defer>
-      // Flask inyecta los datos directamente aquí
-      const data = {{ datos_telemetria | tojson }};
-
-      // Extraemos los valores para la gráfica
-      const timestamps = data.map(item => item.timestamp.N);
-      const temperaturas = data.map(item => item.temperatura.S.replace('C', ''));
-
-      const ctx = document.getElementById('myChart').getContext('2d');
-      new Chart(ctx, {
-          type: 'line',
-          data: {
-              labels: timestamps,
-              datasets: [{
-                  label: 'Temperatura (°C)',
-                  data: temperaturas,
-                  borderColor: 'rgb(255, 99, 132)'
-              }]
-          }
-      });
-  </script>
 </head>
 <body>
 
@@ -101,6 +80,5 @@
     </div>
 
   </div>
-
 </body>
 </html>

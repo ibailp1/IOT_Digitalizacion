@@ -20,15 +20,15 @@ const todosLosInterruptores = [
   casillaLedRgb
 ];
 
-function actualizarEstadoLuces(data) {
+function actualizarEstadoLuces(datos) {
   
-  casillaLedRoja.checked = data["estado-luces"]["led-roja"].encendida;
-  casillaLedAmarilla.checked = data["estado-luces"]["led-amarilla"].encendida;
-  casillaLedVerde.checked = data["estado-luces"]["led-verde"].encendida;
-  casillaLedPuerta.checked = data["estado-luces"]["led-puerta"].encendida;
-  casillaLedRgb.checked = data["estado-luces"]["led-rgb"].encendida;
-  selectorColorRgb.value = data["estado-luces"]["led-puerta"].color;
+  casillaLedRoja.checked = datos["estado-luces"]["led-roja"].encendida;
+  casillaLedAmarilla.checked = datos["estado-luces"]["led-amarilla"].encendida;
+  casillaLedVerde.checked = datos["estado-luces"]["led-verde"].encendida;
+  casillaLedPuerta.checked = datos["estado-luces"]["led-puerta"].encendida;
+  casillaLedRgb.checked = datos["estado-luces"]["led-rgb"].encendida;
   
+  selectorColorRgb.value = datos["estado-luces"]["led-puerta"].color;
   circulitoRgb.style.background = selectorColorRgb.value;
 }
 
@@ -55,18 +55,26 @@ function enviarComandoLuces(cuerpo_mensaje) {
     console.info(payload);
   })
   .catch(function (error) {
-    console.error("Error al enviar comando.");
+    console.info("Error al enviar el comando.");
     console.info(payload);
+    console.error(error);
   });
 }
 
 function solicitarEstadoLuces() {
   fetch("/solicitar-estado-luces")
-    .then(function (response) { return response.json(); })
-    .then(function (data) {
-      actualizarEstadoLuces(data);
+    .then(function (respuesta) {
+      return respuesta.json();
     })
-    .catch(function (Error) {});
+    .then(function (respuesta) {
+      console.log(respuesta);
+      const datos = respuesta.data;
+      if (datos) actualizarEstadoLuces(datos);
+    })
+    .catch(function (error) {
+      console.info("Error al solicitar el estado de las luces.");
+      console.error(error);
+    });
 }
 
 function procesarTelemetria(data) {
@@ -134,3 +142,49 @@ todosLosInterruptores.forEach(function (interruptor) {
     enviarComandoLuces(cuerpo_mensaje);
   });
 });
+
+(async function cargarDatos() {
+    const response = await fetch('/obtener-telemetria-durante-las-ultimas-24-horas');
+    const data = await response.json();
+
+    const timestamps = data.map(item => item.timestamp);
+    const temperaturas = data.map(item => item.temperatura);
+    const humedades = data.map(item => item.humedad);
+    const distancias = data.map(item => item.distancia);
+
+    const ctx = document.getElementById('myChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: timestamps,
+            datasets: [
+                {
+                    label: 'Temperatura (°C)',
+                    data: temperaturas,
+                    borderColor: 'rgb(255, 99, 132)',
+                    fill: false
+                },
+                {
+                    label: 'Humedad (%)',
+                    data: humedades,
+                    borderColor: 'rgb(54, 162, 235)',
+                    fill: false
+                },
+                {
+                    label: 'Distancia (cm)',
+                    data: distancias,
+                    borderColor: 'rgb(75, 192, 192)',
+                    fill: false
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+})();

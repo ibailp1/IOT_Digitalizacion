@@ -65,7 +65,7 @@ IF NOT DEFINED direccion_ip (
 
 )
 
-SET "ruta_origen=%CD:\=/%/%cosa%/../../cert/"
+SET "ruta_origen=%CD:\=/%/%cosa%/../../secretos/"
 SET "ruta_destino=/home/%nombre_usuario%/casa-iot/"
 
 scp %parametros_scp% "%ruta_origen%" %nombre_usuario%@%direccion_ip%:"%ruta_destino%"

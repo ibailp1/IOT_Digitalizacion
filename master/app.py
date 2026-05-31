@@ -3,6 +3,9 @@ import threading
 import selectors
 import serial
 
+import inspect
+import os
+
 import queue
 import time
 import json
@@ -16,13 +19,16 @@ TASA_DE_BAUDIOS_DEL_PUERTO_SERIAL = 9600 # Baud rate
 CANTIDAD_INTENTOS_CONEXION_PUERTO_SERIAL = 3
 TIEMPO_ESPERA_ENTRE_INTENTOS_CONEXION_PUERTO_SERIAL = 1 # Segundos
 
-aws_iot_core_endpoint="a2xyhr7rc9cefs-ats.iot.us-east-1.amazonaws.com"
+CANTIDAD_INTENTOS_CONEXION_AWS_IOT_CORE = 2
+TIEMPO_ESPERA_CONEXION_AWS_IOT_CORE = 5 # Segundos
 
-aws_iot_core_ruta_archivo_certificado="../cert/casita-1.pem.crt"
-aws_iot_core_ruta_archivo_llave_privada="../cert/casita-1.private.pem.key"
+aws_iot_core_endpoint_address=""
 
-mqtt_identificador_cliente="randal"
-mqtt_nombre_dispositivo="casita-1"
+aws_iot_core_ruta_archivo_certificado="../secretos/casita-1.pem.crt"
+aws_iot_core_ruta_archivo_llave_privada="../secretos/casita-1.private.pem.key"
+
+mqtt_identificador_cliente="randal-studios"
+mqtt_nombre_cosa="randal-casita-1"
 
 mqtt_tema_datos_telemetria="datos/telemetria"
 mqtt_tema_datos_estado_luces="datos/estado-luces"
@@ -40,7 +46,6 @@ received_all_event = threading.Event()
 
 mqtt_client_aws_iot_core = None
 aws_iot_core_estado_conexion_activa = False
-TIEMPO_ESPERA_CONEXION_AWS_IOT_CORE = 5 # Segundos
 
 cola_publicaciones_mqtt = queue.Queue()
 evento_terminar_proceso = threading.Event()
@@ -70,6 +75,13 @@ def limpieza_y_salida(codigo_de_salida):
     cola_publicaciones_mqtt.put(None)
     sys.exit(codigo_de_salida)
 
+def imprimir_error(mensaje):
+    caller_frame = inspect.currentframe().f_back
+    nombre_archivo = os.path.basename(caller_frame.f_code.co_filename)
+    numero_linea = caller_frame.f_lineno
+    print(nombre_archivo + "(" + str(numero_linea) + "):")
+    print(mensaje)
+
 def conectar_con_puerto_serial():
     for numero_intento in range(CANTIDAD_INTENTOS_CONEXION_PUERTO_SERIAL):
         numero_intento += 1
@@ -92,7 +104,7 @@ def conectar_con_aws_iot_core():
 
     # Creation of MQTT5 mqtt_client_aws_iot_core using mutual TLS via X509 Certificate and Private Key
     mqtt_client_aws_iot_core = mqtt5_client_builder.mtls_from_path(
-        endpoint=aws_iot_core_endpoint,
+        endpoint=aws_iot_core_endpoint_address,
         cert_filepath=aws_iot_core_ruta_archivo_certificado,
         pri_key_filepath=aws_iot_core_ruta_archivo_llave_privada,
         on_publish_received=on_publish_received_AWS,
@@ -144,7 +156,7 @@ def on_publish_received_AWS(publish_packet_data):
 
 def on_lifecycle_stopped_AWS(lifecycle_stopped_data: mqtt5.LifecycleStoppedData):
     stopped_event.set()
-    print("Se ha detenido el ciclo de vida de la conexión con AWS IOT Core.\n")
+    print("Se ha detenido el ciclo de vida de la conexión con AWS IOT Core.")
 
 def on_lifecycle_attempting_connect_AWS(lifecycle_attempting_connect_data: mqtt5.LifecycleAttemptingConnectData):
     print("Intento de conexión con AWS IOT Core.")
@@ -161,11 +173,14 @@ def on_lifecycle_connection_failure_AWS(lifecycle_connection_failure: mqtt5.Life
     global aws_iot_core_estado_conexion_activa
     aws_iot_core_estado_conexion_activa = False
     print("Conexión fallida con AWS IOT Core.")
+    print(lifecycle_connection_failure.exception)
 
 def on_lifecycle_disconnection_AWS(lifecycle_disconnect_data: mqtt5.LifecycleDisconnectData):
     global aws_iot_core_estado_conexion_activa
     aws_iot_core_estado_conexion_activa = False
     print("Conexión perdida con AWS IOT Core.")
+    if lifecycle_disconnect_data.disconnect_packet:
+        print("Código del motivo de la desconexión: " + lifecycle_disconnect_data.disconnect_packet.reason_code)
 
 def enviar_comando(comando):
     comando = (comando + "\n").encode("utf-8")
@@ -176,7 +191,7 @@ def enviar_comando(comando):
             print("No se ha escrito el comando al puerto serial debido a un error.")
             return
         except Exception:
-            print("Error inesperado al escribir el comando al puerto serial.")
+            imprimir_error("Error inesperado al escribir el comando al puerto serial.")
             return
 
 def procesar_serial(descriptor_selector, codigo_evento_selector):
@@ -184,23 +199,31 @@ def procesar_serial(descriptor_selector, codigo_evento_selector):
     if not aws_iot_core_estado_conexion_activa: return
 
     try:
-        linea_de_texto = file_obj.readline().decode('utf-8').strip()
-    except UnicodeDecodeError:
-        print("Error de formato UTF-8 al procesar el mensaje del Arduino.")
+        linea_de_texto = descriptor_selector.readline().decode('utf-8').strip()
+    except UnicodeDecodeError as excepcion:
+        imprimir_error("Error de formato UTF-8 al procesar el mensaje del Arduino.")
+        print(excepcion)
         return
-    except Exception:
-        print("Error inesperado al procesar el mensaje del Arduino.")
+    except Exception as excepcion:
+        imprimir_error("Error inesperado al procesar el mensaje del Arduino.")
+        print(excepcion)
         return
 
     if not linea_de_texto: return
     
     try:
         estado_arduino = json.loads(linea_de_texto)
-    except json.JSONDecodeError:
-        print("Error de formato JSON al procesar el mensaje del Arduino.")
+    except json.JSONDecodeError as excepcion:
+        imprimir_error("Error de formato JSON al procesar el mensaje del Arduino.")
+        print(excepcion)
+        print("Línea de texto:")
+        print(linea_de_texto)
         return
-    except Exception:
-        print("Error inesperado al procesar el mensaje del Arduino.")
+    except Exception as excepcion:
+        imprimir_error("Error inesperado al procesar el mensaje del Arduino.")
+        print(excepcion)
+        print("Línea de texto:")
+        print(linea_de_texto)
         return
 
     if not aws_iot_core_estado_conexion_activa: return
@@ -209,11 +232,13 @@ def procesar_serial(descriptor_selector, codigo_evento_selector):
         cabeza_mensaje = payload["cabeza-mensaje"]
         cuerpo_mensaje = payload["cuerpo-mensaje"]
         codigo_mensaje = cabeza_mensaje["codigo-mensaje"]
-    except KeyError:
-        print("Recibido mensaje JSON en mal formato desde AWS IOT Core.")
+    except KeyError as excepcion:
+        imprimir_error("Recibido mensaje JSON en mal formato desde AWS IOT Core.")
+        print(excepcion)
         return
-    except Exception:
-        print("Error inesperado al procesar el mensaje de JSON recibido desde AWS IOT Core.")
+    except Exception as excepcion:
+        imprimir_error("Error inesperado al procesar el mensaje de JSON recibido desde AWS IOT Core.")
+        print(excepcion)
         return
 
     if not aws_iot_core_estado_conexion_activa: return
@@ -223,7 +248,7 @@ def procesar_serial(descriptor_selector, codigo_evento_selector):
 
     if codigo_mensaje == codigo_mensaje_datos_telemetria:
         mqtt_tema = mqtt_tema_datos_telemetria
-        cuerpo_mensaje["identificador-cliente-nombre-dispositivo"] = mqtt_identificador_cliente + "-" + mqtt_nombre_dispositivo
+        cuerpo_mensaje["identificador-cliente-nombre-dispositivo"] = mqtt_identificador_cliente + "-" + mqtt_nombre_cosa
         
         ahora = datetime.now()
         cuerpo_mensaje["timestamp-formato-unix"] = ahora.timestamp()
@@ -239,7 +264,7 @@ def procesar_serial(descriptor_selector, codigo_evento_selector):
         qos=mqtt5.QoS.AT_LEAST_ONCE
     ))
 
-    for numero_intento in range(CANTIDAD_INTENTOS_CONEXION_PUERTO_SERIAL):
+    for numero_intento in range(CANTIDAD_INTENTOS_CONEXION_AWS_IOT_CORE):
         if not aws_iot_core_estado_conexion_activa: return
         numero_intento += 1
         try:
@@ -247,12 +272,15 @@ def procesar_serial(descriptor_selector, codigo_evento_selector):
             return
         except concurrent.futures.TimeoutError:
             print("Intento fallido número " + str(numero_intento) + " al conectar con AWS IOT Core.")
-            if numero_intento == CANTIDAD_INTENTOS_CONEXION_PUERTO_SERIAL:
-                print("Se agotó el tiempo de espera al publicar en AWS IOT Core.")
+            if numero_intento == CANTIDAD_INTENTOS_CONEXION_AWS_IOT_CORE:
+                imprimir_error("Se agotó el tiempo de espera al publicar en AWS IOT Core.")
+                print(excepcion)
                 return
+            print(excepcion)
             continue
         except Exception:
-            print("Error inesperado al conectar con AWS IOT Core.")
+            imprimir_error("Error inesperado al conectar con AWS IOT Core.")
+            print(excepcion)
             return
 
 def procesar_publicacion_mqtt(publicacion_mqtt):
@@ -263,7 +291,7 @@ def procesar_publicacion_mqtt(publicacion_mqtt):
         print("Recibido mensaje UTF-8 en mal formato desde AWS IOT Core.")
         return
     except Exception:
-        print("Error inesperado al procesar el mensaje de UTF-8 recibido desde AWS IOT Core.")
+        imprimir_error("Error inesperado al procesar el mensaje de UTF-8 recibido desde AWS IOT Core.")
         return
 
     try:
@@ -272,7 +300,7 @@ def procesar_publicacion_mqtt(publicacion_mqtt):
         print("Recibido mensaje JSON en mal formato desde AWS IOT Core.")
         return
     except Exception:
-        print("Error inesperado al procesar el mensaje de JSON recibido desde AWS IOT Core.")
+        imprimir_error("Error inesperado al procesar el mensaje de JSON recibido desde AWS IOT Core.")
         return
 
     try:
@@ -283,7 +311,7 @@ def procesar_publicacion_mqtt(publicacion_mqtt):
         print("Recibido mensaje JSON en mal formato desde AWS IOT Core.")
         return
     except Exception:
-        print("Error inesperado al procesar el mensaje de JSON recibido desde AWS IOT Core.")
+        imprimir_error("Error inesperado al procesar el mensaje de JSON recibido desde AWS IOT Core.")
         return
 
     if codigo_mensaje == codigo_mensaje_comando_luces:
@@ -319,7 +347,7 @@ def procesar_publicacion_mqtt(publicacion_mqtt):
             return
 
         except Exception:
-            print("Error inesperado al procesar el mensaje de JSON recibido desde AWS IOT Core.")
+            imprimir_error("Error inesperado al procesar el mensaje de JSON recibido desde AWS IOT Core.")
             return
 
         return
@@ -327,20 +355,22 @@ def procesar_publicacion_mqtt(publicacion_mqtt):
 def manejar_eventos_cola_publicaciones_mqtt():
     global cola_publicaciones_mqtt
     while not evento_terminar_proceso.is_set():
+        publicacion_mqtt = None
         try:
             publicacion_mqtt = cola_publicaciones_mqtt.get(timeout=1)
-            if publicacion_mqtt is None:
-                cola_publicaciones_mqtt.task_done()
-                continue
-            procesar_publicacion_mqtt(publicacion_mqtt)
         except queue.Empty:
-            pass
+            continue
         except Exception:
             print("Ha ocurrido un error inesperado en el momento de leer una publicación de MQTT recibida desde AWS IOT Core.")
-            pass
+            continue
+        if publicacion_mqtt is not None:
+            procesar_publicacion_mqtt(publicacion_mqtt)
         cola_publicaciones_mqtt.task_done()
 
 if __name__ == '__main__':
+
+    with open("../secretos/aws-endpoint-address.txt", 'r') as archivo:
+        aws_iot_core_endpoint_address = archivo.readline()
 
     mensaje_error_conexion_puerto_serial = conectar_con_puerto_serial()
     if mensaje_error_conexion_puerto_serial is not None:
@@ -364,13 +394,14 @@ if __name__ == '__main__':
     try:
         while True:
             # Se duerme hasta que el Arduino escribe algo
-            for key, mask in selector.select():
+            for key, mask in recursos.selector.select():
                 key.data(key.fileobj, mask)
     except KeyboardInterrupt:
         # Si se termina el programa desde la consola pulsando una combinación de teclas
         limpieza_y_salida(0)
-    except Exception:
-        print("Error inesperado al esperar eventos del puerto serial.")
+    except Exception as excepcion:
+        imprimir_error("Error inesperado al esperar eventos del puerto serial.")
+        print(excepcion)
         limpieza_y_salida(1)
 
     limpieza_y_salida(0)

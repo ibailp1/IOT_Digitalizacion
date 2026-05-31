@@ -102,3 +102,12 @@ Para ejecutar la app, desde /home/ec2-user/casa-iot/cloud:
 
 python3 app.py
 
+
+
+Desde tu instancia puedes ejecutar el siguiente comando para acceder a la ruta del endpoint de AWS:
+aws iot describe-endpoint --endpoint-type iot:Data-ATS
+
+
+
+He decidido guardar esta ruta fuera del repositorio por motivos de seguridad, al igual que los certificados y las llaves.
+
