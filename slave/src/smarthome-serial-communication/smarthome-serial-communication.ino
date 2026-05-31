@@ -1,19 +1,19 @@
 /*
    ______            __                  _            __                __________
   / ____/_  ______ _/ /__________ _   __(_)__  ____  / /_____  _____   / ____/  _/
- / /   / / / / __ `/ __/ ___/ __ \ | / / / _ \/ __ \/ __/ __ \/ ___/  / /    / /  
-/ /___/ /_/ / /_/ / /_/ /  / /_/ / |/ / /  __/ / / / /_/ /_/ (__  )  / /____/ /   
-\____/\__,_/\__,_/\__/_/   \____/|___/_/\___/\_/ /_/\__/\____/____/   \____/___/   
-                                                                                
-    __             ___              __             ______   __   
-   / /_  __  __   /   |  ____  ____/ /__  _____   / ____/  / /   
-  / __ \/ / / /  / /| | / __ \/ __  / _ \/ ___/  / /_     / /    
- / /_/ / /_/ /  / ___ |/ / / / /_/ /  __/ /     / __/  _ / /____ 
+ / /   / / / / __ `/ __/ ___/ __ \ | / / / _ \/ __ \/ __/ __ \/ ___/  / /    / /
+/ /___/ /_/ / /_/ / /_/ /  / /_/ / |/ / /  __/ / / / /_/ /_/ (__  )  / /____/ /
+\____/\__,_/\__,_/\__/_/   \____/|___/_/\___/\_/ /_/\__/\____/____/   \____/___/
+
+    __             ___              __             ______   __
+   / /_  __  __   /   |  ____  ____/ /__  _____   / ____/  / /
+  / __ \/ / / /  / /| | / __ \/ __  / _ \/ ___/  / /_     / /
+ / /_/ / /_/ /  / ___ |/ / / / /_/ /  __/ /     / __/  _ / /____
 /_.___/\__, /  /_/  |_/_/ /_/\__,_/\___/\_/     /_/    (_)_____(_)
-      /____/   
-                                           
+      /____/
+
  Smarthome Serial Communication Project
- 
+
  This project integrates all the smarthome lessons into a single Arduino sketch.
  It uses Serial communication for requests and results.
 
@@ -75,6 +75,15 @@ Keypad customKeypad = Keypad(makeKeymap(hexaKeys), rowPins, colPins, ROWS, COLS)
 
 String command = "";
 
+// Light state tracking (OUTPUT pins can't be read reliably)
+bool ledRedState    = false;
+bool ledGreenState  = false;
+bool ledYellowState = false;
+bool ledWhiteState  = false;
+unsigned char rgbR  = 0;
+unsigned char rgbG  = 0;
+unsigned char rgbB  = 0;
+
 void setup() {
   // Initialize Serial
   Serial.begin(9600);
@@ -122,7 +131,7 @@ void loop() {
 
   // Handle Keypad Input
   handleKeypad();
-  
+
   // Handle RFID
   handleRFID();
 }
@@ -176,17 +185,18 @@ void handleAllCommand(String cmd) {
 
 void setAllLights(bool turnOn, bool turnOff) {
   if (turnOn) {
-    digitalWrite(redLED, HIGH);
-    digitalWrite(greenLED, HIGH);
-    digitalWrite(yellowLED, HIGH);
-    digitalWrite(whiteLED, HIGH);
+    digitalWrite(redLED, HIGH);    ledRedState    = true;
+    digitalWrite(greenLED, HIGH);  ledGreenState  = true;
+    digitalWrite(yellowLED, HIGH); ledYellowState = true;
+    digitalWrite(whiteLED, HIGH);  ledWhiteState  = true;
     color(255, 255, 255);
     Serial.println("Result: All lights ON");
   } else if (turnOff) {
-    digitalWrite(redLED, LOW);
-    digitalWrite(greenLED, LOW);
-    digitalWrite(yellowLED, LOW);
-    digitalWrite(whiteLED, LOW);
+    digitalWrite(redLED, LOW);     ledRedState    = false;
+    digitalWrite(greenLED, LOW);   ledGreenState  = false;
+    digitalWrite(yellowLED, LOW);  ledYellowState = false;
+    digitalWrite(whiteLED, LOW);   ledWhiteState  = false;
+
     color(0, 0, 0);
     Serial.println("Result: All lights OFF");
   }
@@ -195,15 +205,25 @@ void setAllLights(bool turnOn, bool turnOff) {
 void applyLed(int pin, const char* label, bool turnOn, bool turnOff) {
   if (turnOn) {
     digitalWrite(pin, HIGH);
+    updateLedState(pin, true);
     Serial.print("Result: ");
     Serial.print(label);
     Serial.println(" ON");
   } else if (turnOff) {
     digitalWrite(pin, LOW);
+    updateLedState(pin, false);
     Serial.print("Result: ");
     Serial.print(label);
     Serial.println(" OFF");
   }
+}
+
+
+void updateLedState(int pin, bool state) {
+  if (pin == redLED)         ledRedState    = state;
+  else if (pin == greenLED)  ledGreenState  = state;
+  else if (pin == yellowLED) ledYellowState = state;
+  else if (pin == whiteLED)  ledWhiteState  = state;
 }
 
 void handleLedRgbHex(String cmd) {
@@ -306,6 +326,17 @@ void readAllSensors() {
   Serial.print("Result: Temperature: ");
   Serial.print(DHT.temperature, 1);
   Serial.println("C");
+
+  // Lighting state
+  Serial.print("Result: LedRojo ");     Serial.println(ledRedState    ? "ON" : "OFF");
+  Serial.print("Result: LedVerde ");    Serial.println(ledGreenState  ? "ON" : "OFF");
+  Serial.print("Result: LedAmarillo "); Serial.println(ledYellowState ? "ON" : "OFF");
+  Serial.print("Result: LedBlanco ");   Serial.println(ledWhiteState  ? "ON" : "OFF");
+
+  char rgbHex[8];
+  sprintf(rgbHex, "#%02X%02X%02X", rgbR, rgbG, rgbB);
+  Serial.print("Result: RGB ");
+  Serial.println(rgbHex);
 }
 
 void handleKeypad() {
@@ -347,6 +378,9 @@ void color(unsigned char red, unsigned char green, unsigned char blue) {
   analogWrite(redPin_RGB, red);
   analogWrite(greenPin_RGB, green);
   analogWrite(bluePin_RGB, blue);
+  rgbR = red;
+  rgbG = green;
+  rgbB = blue;
 }
 
 void open_door() {
@@ -356,8 +390,8 @@ void open_door() {
   delay(400);
   head.detach();
   digitalWrite(SERVO_PIN, LOW);
-  digitalWrite(greenLED, HIGH);
-  digitalWrite(redLED, LOW);
+  digitalWrite(greenLED, HIGH); ledGreenState = true;
+  digitalWrite(redLED, LOW);    ledRedState   = false;
 }
 
 void half_open() {
@@ -367,8 +401,8 @@ void half_open() {
   delay(400);
   head.detach();
   digitalWrite(SERVO_PIN, LOW);
-  digitalWrite(greenLED, LOW);
-  digitalWrite(redLED, LOW);
+  digitalWrite(greenLED, LOW); ledGreenState = false;
+  digitalWrite(redLED, LOW);   ledRedState   = false;
 }
 
 void close_door() {
@@ -378,8 +412,8 @@ void close_door() {
   delay(400);
   head.detach();
   digitalWrite(SERVO_PIN, LOW);
-  digitalWrite(greenLED, LOW);
-  digitalWrite(redLED, HIGH);
+  digitalWrite(greenLED, LOW);  ledGreenState = false;
+  digitalWrite(redLED, HIGH);   ledRedState   = true;
 }
 
 boolean compare_rfid(unsigned char x[], unsigned char y[]) {
