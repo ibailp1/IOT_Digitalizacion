@@ -51,6 +51,8 @@ IF "%cosa%"=="master" (
 
 )
 
+SET "parametros_scp=%parametros_scp% -r"
+
 SET "direccion_ip=%~2"
 
 IF NOT DEFINED direccion_ip (
@@ -63,32 +65,8 @@ IF NOT DEFINED direccion_ip (
 
 )
 
-SET "ruta_subcarpeta=%~3"
-SET "ruta_archivo=%~4"
-
-SET "ruta_origen=%CD:\=/%/%cosa%/"
+SET "ruta_origen=%CD:\=/%/%cosa%/../../cert/"
 SET "ruta_destino=/home/%nombre_usuario%/casa-iot/"
-
-IF DEFINED ruta_subcarpeta (
-
-	IF NOT DEFINED ruta_archivo (
-
-		ECHO [ERROR] La ruta especificada en el parámetro #3 ^(opcional^) se asume que es un directorio, y debe ir acompañada de un parámetro #4 para que SCP no haga de las suyas.
-
-		ENDLOCAL
-
-		EXIT /B 1
-
-	)
-
-	SET "ruta_origen=%ruta_origen%%ruta_subcarpeta%/%ruta_archivo%"
-	SET "ruta_destino=%ruta_destino%%cosa%/%ruta_subcarpeta%/%ruta_archivo%"
-
-) ELSE (
-
-	SET "parametros_scp=%parametros_scp% -r"
-
-)
 
 scp %parametros_scp% "%ruta_origen%" %nombre_usuario%@%direccion_ip%:"%ruta_destino%"
 
