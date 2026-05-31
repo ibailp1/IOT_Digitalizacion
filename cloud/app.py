@@ -2,6 +2,7 @@ import sys
 import subprocess
 import threading
 
+import queue
 import json
 from datetime import datetime, timedelta
 
@@ -16,8 +17,8 @@ app = Flask(__name__)
 
 aws_iot_core_endpoint="a2xyhr7rc9cefs-ats.iot.us-east-1.amazonaws.com"
 
-aws_iot_core_ruta_archivo_certificado="cert/casita-1.cert.pem"
-aws_iot_core_ruta_archivo_llave_privada="cert/casita-1.private.key"
+aws_iot_core_ruta_archivo_certificado="../../cert/casita-1.pem.crt"
+aws_iot_core_ruta_archivo_llave_privada="../../cert/casita-1.private.pem.key"
 
 mqtt_identificador_cliente="randal"
 mqtt_nombre_dispositivo="casita-1"
@@ -42,7 +43,7 @@ mqtt_client_aws_iot_core = None
 aws_iot_core_estado_conexion_activa = False
 TIEMPO_ESPERA_CONEXION_AWS_IOT_CORE = 5 # Segundos
     
-mqtt_client_dynamodb = boto3.mqtt_client_aws_iot_core("dynamodb")
+mqtt_client_dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 
 cola_publicaciones_mqtt = queue.Queue()
 evento_terminar_proceso = threading.Event()
@@ -150,11 +151,11 @@ def parsear_comando_cliente_web():
 
         if "encendida" in cuerpo_mensaje["luz-roja"]:
 
-            if cuerpo_mensaje["luz-roja"]["encendida"] = True:
+            if cuerpo_mensaje["luz-roja"]["encendida"] == True:
                 comando = "encender luz roja"
                 return comando
 
-            if cuerpo_mensaje["luz-roja"]["encendida"] = False:
+            if cuerpo_mensaje["luz-roja"]["encendida"] == False:
                 comando = "apagar luz roja"
                 return comando
 
@@ -164,11 +165,11 @@ def parsear_comando_cliente_web():
 
         if "encendida" in cuerpo_mensaje["luz-amarilla"]:
 
-            if cuerpo_mensaje["luz-amarilla"]["encendida"] = True:
+            if cuerpo_mensaje["luz-amarilla"]["encendida"] == True:
                 comando = "encender luz amarilla"
                 return comando
 
-            if cuerpo_mensaje["luz-amarilla"]["encendida"] = False:
+            if cuerpo_mensaje["luz-amarilla"]["encendida"] == False:
                 comando = "apagar luz amarilla"
                 return comando
 
@@ -178,11 +179,11 @@ def parsear_comando_cliente_web():
 
         if "encendida" in cuerpo_mensaje["luz-verde"]:
 
-            if cuerpo_mensaje["luz-verde"]["encendida"] = True:
-                comando = "encender luz verde"ç
+            if cuerpo_mensaje["luz-verde"]["encendida"] == True:
+                comando = "encender luz verde"
                 return comando
 
-            if cuerpo_mensaje["luz-verde"]["encendida"] = False:
+            if cuerpo_mensaje["luz-verde"]["encendida"] == False:
                 comando = "apagar luz verde"
                 return comando
 
@@ -192,11 +193,11 @@ def parsear_comando_cliente_web():
 
         if "encendida" in cuerpo_mensaje["luz-puerta"]:
 
-            if cuerpo_mensaje["luz-puerta"]["encendida"] = True:
+            if cuerpo_mensaje["luz-puerta"]["encendida"] == True:
                 comando = "encender luz puerta"
                 return comando
 
-            if cuerpo_mensaje["luz-puerta"]["encendida"] = False:
+            if cuerpo_mensaje["luz-puerta"]["encendida"] == False:
                 comando = "apagar luz puerta"
                 return comando
 
@@ -206,11 +207,11 @@ def parsear_comando_cliente_web():
 
         if "encendida" in cuerpo_mensaje["luz-rgb"]:
 
-            if cuerpo_mensaje["luz-rgb"]["encendida"] = True:
+            if cuerpo_mensaje["luz-rgb"]["encendida"] == True:
                 comando = "encender luz rgb"
                 return comando
 
-            if cuerpo_mensaje["luz-rgb"]["encendida"] = False:
+            if cuerpo_mensaje["luz-rgb"]["encendida"] == False:
                 comando = "apagar luz rgb"
                 return comando
 
@@ -265,8 +266,7 @@ def enviar_comando():
 
     if not aws_iot_core_estado_conexion_activa: return "Error: Cliente IoT no conectado", 500
 
-    objeto_futuro_publicacion =
-    mqtt_client_aws_iot_core.publish(mqtt5.PublishPacket(
+    objeto_futuro_publicacion = mqtt_client_aws_iot_core.publish(mqtt5.PublishPacket(
         topic=mqtt_tema_comando_luces,
         payload=json.dumps(payload),
         qos=mqtt5.QoS.AT_LEAST_ONCE
@@ -280,7 +280,7 @@ def enviar_comando():
             return "Solicitud enviada al Master correctamente", 200
         except concurrent.futures.TimeoutError:
             print("Intento fallido número " + str(numero_intento) + " al conectar con AWS IOT Core.")
-            if numero_intento = CANTIDAD_INTENTOS_CONEXION_PUERTO_SERIAL:
+            if numero_intento == CANTIDAD_INTENTOS_CONEXION_PUERTO_SERIAL:
                 print("Se agotó el tiempo de espera al publicar en AWS IOT Core.")
                 return
             continue
@@ -331,8 +331,7 @@ def solicitar_estado_luces():
 
     if not aws_iot_core_estado_conexion_activa: return "Error: Cliente IoT no conectado", 500
 
-    objeto_futuro_publicacion =
-    mqtt_client_aws_iot_core.publish(mqtt5.PublishPacket(
+    objeto_futuro_publicacion = mqtt_client_aws_iot_core.publish(mqtt5.PublishPacket(
         topic=mqtt_tema_solicitud_estado_luces,
         payload=json.dumps(payload),
         qos=mqtt5.QoS.AT_LEAST_ONCE
@@ -346,7 +345,7 @@ def solicitar_estado_luces():
             break
         except concurrent.futures.TimeoutError:
             print("Intento fallido número " + str(numero_intento) + " al conectar con AWS IOT Core.")
-            if numero_intento = CANTIDAD_INTENTOS_CONEXION_PUERTO_SERIAL:
+            if numero_intento == CANTIDAD_INTENTOS_CONEXION_PUERTO_SERIAL:
                 print("Se agotó el tiempo de espera al publicar en AWS IOT Core.")
                 return
             continue

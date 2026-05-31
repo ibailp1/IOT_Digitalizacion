@@ -3,6 +3,7 @@ import threading
 import selectors
 import serial
 
+import queue
 import time
 import json
 
@@ -17,8 +18,8 @@ TIEMPO_ESPERA_ENTRE_INTENTOS_CONEXION_PUERTO_SERIAL = 1 # Segundos
 
 aws_iot_core_endpoint="a2xyhr7rc9cefs-ats.iot.us-east-1.amazonaws.com"
 
-aws_iot_core_ruta_archivo_certificado="cert/casita-1.cert.pem"
-aws_iot_core_ruta_archivo_llave_privada="cert/casita-1.private.key"
+aws_iot_core_ruta_archivo_certificado="../../cert/casita-1.pem.crt"
+aws_iot_core_ruta_archivo_llave_privada="../../cert/casita-1.private.pem.key"
 
 mqtt_identificador_cliente="randal"
 mqtt_nombre_dispositivo="casita-1"
@@ -78,7 +79,7 @@ def conectar_con_puerto_serial():
             return None
         except serial.SerialException:
             print("Intento fallido número " + str(numero_intento) + " al conectar con el puerto serial.")
-            if numero_intento = CANTIDAD_INTENTOS_CONEXION_PUERTO_SERIAL:
+            if numero_intento == CANTIDAD_INTENTOS_CONEXION_PUERTO_SERIAL:
                 return "Puerto serial no encontrado. Revisa la configuración."
             time.sleep(TIEMPO_ESPERA_ENTRE_INTENTOS_CONEXION_PUERTO_SERIAL)
             continue
@@ -232,8 +233,7 @@ def procesar_serial(descriptor_selector, codigo_evento_selector):
 
     if not aws_iot_core_estado_conexion_activa: return
 
-    objeto_futuro_publicacion =
-    mqtt_client_aws_iot_core.publish(mqtt5.PublishPacket(
+    objeto_futuro_publicacion = mqtt_client_aws_iot_core.publish(mqtt5.PublishPacket(
         topic=mqtt_tema,
         payload=json.dumps(payload),
         qos=mqtt5.QoS.AT_LEAST_ONCE
@@ -247,7 +247,7 @@ def procesar_serial(descriptor_selector, codigo_evento_selector):
             return
         except concurrent.futures.TimeoutError:
             print("Intento fallido número " + str(numero_intento) + " al conectar con AWS IOT Core.")
-            if numero_intento = CANTIDAD_INTENTOS_CONEXION_PUERTO_SERIAL:
+            if numero_intento == CANTIDAD_INTENTOS_CONEXION_PUERTO_SERIAL:
                 print("Se agotó el tiempo de espera al publicar en AWS IOT Core.")
                 return
             continue

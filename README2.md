@@ -68,6 +68,10 @@ Puedes especificar en un tercer parámetro la ruta relativa a "repo/cloud/" para
 
 
 
+Si quieres un único archivo de la carpeta raíz (cloud o master), pon "/" en el tercer parámetro (no hacen falta comillas).
+
+
+
 Ejecuta este comando desde la instancia para saber la IP:
 
 curl ifconfig.me
@@ -87,6 +91,8 @@ sudo dnf install python3-pip
 python3 -m pip install flask
 
 python3 -m pip install awsiotsdk
+
+python3 -m pip install boto3
 
 
 
