@@ -69,7 +69,7 @@ cola_publicaciones_mqtt_salientes = None
 
 class MiManager(SyncManager): pass
 MiManager.register("cola_publicaciones_mqtt_entrantes_del_cloud", callable=lambda: cola_publicaciones_mqtt_entrantes)
-MiManager.register("cola_publicaciones_mqtt_entrantes_del_master", queue.Queue)
+MiManager.register("cola_publicaciones_mqtt_entrantes_del_master")
 
 PUERTO_LOCAL = 50002
 PUERTO_REMOTO = 50001
@@ -163,12 +163,14 @@ def poner_publicacion_mqtt_saliente_en_cola(payload):
     while True:
         try:
             cola_publicaciones_mqtt_salientes.put(payload)
-            return
-        except (ConnectionRefusedError, BrokenPipeError, EOFError):
+            break
+        except Exception as exception:
             print("Conexión perdida. Intentando reconectar...")
-            if conectar_con_broker_simulado() == True:
-                print("Reconexión lograda.")
+            print(exception)
+            conectar_con_broker_simulado()
             time.sleep(1)
+    print("Publicación saliente MQTT.")
+    print(json.dumps(json.loads(payload.decode("utf-8")), indent=4))
 
 def publicar_en_tema(mqtt_tema, payload):
 
@@ -270,88 +272,6 @@ def obtener_telemetria_durante_las_ultimas_24_horas():
     datos_telemetria = obtener_datos_dynamodb_durante_las_ultimas_24_horas(nombre_tabla_datos_telemetria)
     return jsonify(datos_telemetria)
 
-def parsear_comando_cliente_web(cuerpo_mensaje):
-
-    if "luz-roja" in cuerpo_mensaje:
-
-        if "encendida" in cuerpo_mensaje["luz-roja"]:
-
-            if cuerpo_mensaje["luz-roja"]["encendida"] == True:
-                comando = "encender luz roja"
-                return comando
-
-            if cuerpo_mensaje["luz-roja"]["encendida"] == False:
-                comando = "apagar luz roja"
-                return comando
-
-        return None
-
-    if "luz-amarilla" in cuerpo_mensaje:
-
-        if "encendida" in cuerpo_mensaje["luz-amarilla"]:
-
-            if cuerpo_mensaje["luz-amarilla"]["encendida"] == True:
-                comando = "encender luz amarilla"
-                return comando
-
-            if cuerpo_mensaje["luz-amarilla"]["encendida"] == False:
-                comando = "apagar luz amarilla"
-                return comando
-
-        return None
-
-    if "luz-verde" in cuerpo_mensaje:
-
-        if "encendida" in cuerpo_mensaje["luz-verde"]:
-
-            if cuerpo_mensaje["luz-verde"]["encendida"] == True:
-                comando = "encender luz verde"
-                return comando
-
-            if cuerpo_mensaje["luz-verde"]["encendida"] == False:
-                comando = "apagar luz verde"
-                return comando
-
-        return None
-
-    if "luz-puerta" in cuerpo_mensaje:
-
-        if "encendida" in cuerpo_mensaje["luz-puerta"]:
-
-            if cuerpo_mensaje["luz-puerta"]["encendida"] == True:
-                comando = "encender luz puerta"
-                return comando
-
-            if cuerpo_mensaje["luz-puerta"]["encendida"] == False:
-                comando = "apagar luz puerta"
-                return comando
-
-        return None
-
-    if "luz-rgb" in cuerpo_mensaje:
-
-        if "encendida" in cuerpo_mensaje["luz-rgb"]:
-
-            if cuerpo_mensaje["luz-rgb"]["encendida"] == True:
-                comando = "encender luz rgb"
-                return comando
-
-            if cuerpo_mensaje["luz-rgb"]["encendida"] == False:
-                comando = "apagar luz rgb"
-                return comando
-
-        if "color" in cuerpo_mensaje["luz-rgb"]:
-            try:
-                int(cuerpo_mensaje["luz-rgb"]["color"].lstrip('#'), 16)
-            except ValueError:
-                return None
-            comando = "cambiar color luz rgb " + cuerpo_mensaje["luz-rgb"]["color"]
-            return comando
-
-        return None
-
-    return None
-
 @app.route("/enviar-comando", methods=["POST"])
 def enviar_comando():
 
@@ -373,11 +293,6 @@ def enviar_comando():
         return construir_json_respuesta("error", 500, "Error inesperado en el lado del servidor.", None)
 
     if not codigo_mensaje == codigo_mensaje_comando_luces:
-        imprimir_error("Recibido mensaje JSON en mal formato desde el cliente web.")
-        return construir_json_respuesta("error", 500, "Comando con mal formato.", None)
-
-    comando = parsear_comando_cliente_web(cuerpo_mensaje)
-    if comando is None:
         imprimir_error("Recibido mensaje JSON en mal formato desde el cliente web.")
         return construir_json_respuesta("error", 500, "Comando con mal formato.", None)
 

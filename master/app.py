@@ -57,7 +57,7 @@ cola_publicaciones_mqtt_salientes = None
 
 class MiManager(SyncManager): pass
 MiManager.register("cola_publicaciones_mqtt_entrantes_del_master", callable=lambda: cola_publicaciones_mqtt_entrantes)
-MiManager.register("cola_publicaciones_mqtt_entrantes_del_cloud", queue.Queue)
+MiManager.register("cola_publicaciones_mqtt_entrantes_del_cloud")
 
 PUERTO_LOCAL = 50001
 PUERTO_REMOTO = 50002
@@ -192,12 +192,14 @@ def poner_publicacion_mqtt_saliente_en_cola(payload):
     while True:
         try:
             cola_publicaciones_mqtt_salientes.put(payload)
-            return
-        except (ConnectionRefusedError, BrokenPipeError, EOFError):
+            break
+        except Exception as exception:
             print("Conexión perdida. Intentando reconectar...")
+            print(exception)
             conectar_con_broker_simulado()
-            print("Reconexión lograda.")
             time.sleep(1)
+    print("Publicación saliente MQTT.")
+    print(json.dumps(json.loads(payload.decode("utf-8")), indent=4))
 
 def publicar_en_tema(mqtt_tema, payload):
 
@@ -285,15 +287,20 @@ def on_lifecycle_disconnection_AWS(lifecycle_disconnect_data: mqtt5.LifecycleDis
 
 def enviar_comando(comando):
     comando = (comando + "\n").encode("utf-8")
-    if not recursos.descriptor_serial.is_open:
+    if recursos.descriptor_serial.is_open:
         try:
             recursos.descriptor_serial.write(comando)
+            print("Se ha pasado el comando al Arduino:")
+            print(comando)
         except serial.SerialException:
             print("No se ha escrito el comando al puerto serial debido a un error.")
             return False
         except Exception:
             imprimir_error("Error inesperado al escribir el comando al puerto serial.")
             return False
+    else:
+        imprimir_error("El puerto serial no está abierto.")
+        return False
 
 def procesar_serial(descriptor_selector, codigo_evento_selector):
 
@@ -353,7 +360,92 @@ def procesar_serial(descriptor_selector, codigo_evento_selector):
 
     publicar_en_tema(mqtt_tema, payload)
 
+def parsear_comando_cliente_web(cuerpo_mensaje):
+
+    if "luz-roja" in cuerpo_mensaje:
+
+        if "encendida" in cuerpo_mensaje["luz-roja"]:
+
+            if cuerpo_mensaje["luz-roja"]["encendida"] == True:
+                comando = "led red on"
+                return comando
+
+            if cuerpo_mensaje["luz-roja"]["encendida"] == False:
+                comando = "led red off"
+                return comando
+
+        return None
+
+    if "luz-amarilla" in cuerpo_mensaje:
+
+        if "encendida" in cuerpo_mensaje["luz-amarilla"]:
+
+            if cuerpo_mensaje["luz-amarilla"]["encendida"] == True:
+                comando = "led yellow on"
+                return comando
+
+            if cuerpo_mensaje["luz-amarilla"]["encendida"] == False:
+                comando = "led yellow off"
+                return comando
+
+        return None
+
+    if "luz-verde" in cuerpo_mensaje:
+
+        if "encendida" in cuerpo_mensaje["luz-verde"]:
+
+            if cuerpo_mensaje["luz-verde"]["encendida"] == True:
+                comando = "led green on"
+                return comando
+
+            if cuerpo_mensaje["luz-verde"]["encendida"] == False:
+                comando = "led green off"
+                return comando
+
+        return None
+
+    if "luz-puerta" in cuerpo_mensaje:
+
+        if "encendida" in cuerpo_mensaje["luz-puerta"]:
+
+            if cuerpo_mensaje["luz-puerta"]["encendida"] == True:
+                comando = "led white on"
+                return comando
+
+            if cuerpo_mensaje["luz-puerta"]["encendida"] == False:
+                comando = "led white off"
+                return comando
+
+        return None
+
+    if "luz-rgb" in cuerpo_mensaje:
+
+        if "encendida" in cuerpo_mensaje["luz-rgb"]:
+
+            if cuerpo_mensaje["luz-rgb"]["encendida"] == True:
+                comando = "led rgb on"
+                return comando
+
+            if cuerpo_mensaje["luz-rgb"]["encendida"] == False:
+                comando = "led rgb off"
+                return comando
+
+        if "color" in cuerpo_mensaje["luz-rgb"]:
+            color_hexadecimal = cuerpo_mensaje["luz-rgb"]["color"].lstrip('#')
+            try:
+                int(color_hexadecimal, 16)
+            except ValueError:
+                return None
+            comando = "cambiar color luz rgb " + color_hexadecimal
+            return comando
+
+        return None
+
+    return None
+
 def procesar_publicacion_mqtt(publicacion_mqtt):
+
+    print("Publicación entrante MQTT.")
 
     try:
         payload_string = publicacion_mqtt.decode("utf-8")
@@ -377,6 +469,8 @@ def procesar_publicacion_mqtt(publicacion_mqtt):
         print(excepcion)
         return False
 
+    print(json.dumps(payload, indent=4))
+
     try:
         cabeza_mensaje = payload["cabeza-mensaje"]
         cuerpo_mensaje = payload["cuerpo-mensaje"]
@@ -391,10 +485,14 @@ def procesar_publicacion_mqtt(publicacion_mqtt):
         return False
 
     if codigo_mensaje == codigo_mensaje_comando_luces:
-        # El servidor web pone la string que espera el Arduino
-        # Se evita gran trabajo de parseo en la Raspberry
-        enviar_comando(cuerpo_mensaje)
-        return False
+        comando = parsear_comando_cliente_web(cuerpo_mensaje)
+        if comando is None:
+            imprimir_error("Recibido mensaje JSON en mal formato desde el cliente web.")
+            return False
+        print("Se ha traducido a un comando:")
+        print(comando)
+        enviar_comando(comando)
+        return True
 
     if codigo_mensaje == codigo_mensaje_solicitud_estado_luces:
         try:
