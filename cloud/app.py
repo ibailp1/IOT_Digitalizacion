@@ -17,8 +17,8 @@ app = Flask(__name__)
 
 aws_iot_core_endpoint="a2xyhr7rc9cefs-ats.iot.us-east-1.amazonaws.com"
 
-aws_iot_core_ruta_archivo_certificado="../../cert/casita-1.pem.crt"
-aws_iot_core_ruta_archivo_llave_privada="../../cert/casita-1.private.pem.key"
+aws_iot_core_ruta_archivo_certificado="../cert/casita-1.pem.crt"
+aws_iot_core_ruta_archivo_llave_privada="../cert/casita-1.private.pem.key"
 
 mqtt_identificador_cliente="randal"
 mqtt_nombre_dispositivo="casita-1"
