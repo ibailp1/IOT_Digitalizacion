@@ -68,15 +68,15 @@ Copia los archivos a la instancia mediante SCP. Utiliza la script "copier.bat".
 
 
 
-La script "copier.bat" Tiene dos modos. Puedes copiar el servidor web a cloud y lo otro a master. Es el primer parámetro (cloud / master). El Segundo parámetro es la IP.
+La script "copier.bat" Tiene dos modos. Puedes copiar el servidor web a cloud y lo otro a master. Es el primer parámetro (cloud / master).  El segundo es el nombre de usuario. El tercero es la IP.
 
 
 
-Puedes especificar en un tercer parámetro la ruta relativa a "repo/cloud/" para especificar una carpeta y un cuarto paráemtro para el nombrer del archivo, y así copiar solo un archivo (es mucho más rápido, útil mientras haces pequeños cambios durante el desarrollo).
+Puedes especificar en un cuarto parámetro la ruta relativa a "repo/cloud/" para especificar una carpeta y un quinto paráemtro para el nombrer del archivo, y así copiar solo un archivo (es mucho más rápido, útil mientras haces pequeños cambios durante el desarrollo).
 
 
 
-Si quieres un único archivo de la carpeta raíz (cloud o master), pon "/" en el tercer parámetro (no hacen falta comillas).
+Si quieres un único archivo de la carpeta raíz (cloud o master), pon "/" en el cuarto parámetro (no hacen falta comillas).
 
 
 

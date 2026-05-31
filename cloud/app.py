@@ -6,9 +6,9 @@ import inspect
 import os
 
 import queue
-from multiprocessing.managers import BaseManager
+from multiprocessing.managers import SyncManager
 
-import queue
+import time
 import json
 from datetime import datetime, timedelta
 
@@ -18,6 +18,8 @@ from awscrt import mqtt5
 import boto3
 
 from flask import Flask, render_template, request, redirect, url_for, jsonify
+
+MODO_SIMULACION_MQTT = True
 
 CANTIDAD_INTENTOS_CONEXION_AWS_IOT_CORE = 2
 TIEMPO_ESPERA_CONEXION_AWS_IOT_CORE = 5 # Segundos
@@ -62,18 +64,21 @@ ultima_telemetria_recibida = {}
 
 evento_terminar_proceso = threading.Event()
 
-cola_publicaciones_mqtt_salientes = queue.Queue()
-cola_publicaciones_mqtt_entrantes = None
+cola_publicaciones_mqtt_entrantes = queue.Queue()
+cola_publicaciones_mqtt_salientes = None
 
-class MiManager(BaseManager): pass
-MiManager.register("get_salientes", callable=lambda: cola_publicaciones_mqtt_salientes)
-MiManager.register("get_entrantes", callable=lambda: cola_publicaciones_mqtt_entrantes)
+class MiManager(SyncManager): pass
+MiManager.register("cola_publicaciones_mqtt_entrantes_del_cloud", callable=lambda: cola_publicaciones_mqtt_entrantes)
+MiManager.register("cola_publicaciones_mqtt_entrantes_del_master", queue.Queue)
 
 PUERTO_LOCAL = 50002
 PUERTO_REMOTO = 50001
 
 manager_local = MiManager(address=("127.0.0.1", PUERTO_LOCAL), authkey=b"secreto")
-manager_local.get_server().serve_forever(poll_interval=1)
+def iniciar_servidor():
+    server = manager_local.get_server()
+    server.serve_forever()
+threading.Thread(target=iniciar_servidor, daemon=True).start()
 
 def imprimir_error(mensaje):
     caller_frame = inspect.currentframe().f_back
@@ -81,6 +86,11 @@ def imprimir_error(mensaje):
     numero_linea = caller_frame.f_lineno
     print(nombre_archivo + "(" + str(numero_linea) + "):")
     print(mensaje)
+
+def limpieza_y_salida(codigo_de_salida):
+    evento_terminar_proceso.set()
+    poner_publicacion_mqtt_saliente_en_cola(None)
+    sys.exit(codigo_de_salida)
 
 def crear_cliente_mqtt():
 
@@ -109,22 +119,26 @@ def crear_cliente_mqtt():
             return False
         return True
 
+def conectar_con_broker_simulado():
+    global cola_publicaciones_mqtt_salientes
+    cola_publicaciones_mqtt_salientes = None
+    while cola_publicaciones_mqtt_salientes is None:
+        try:
+            manager_remoto = MiManager(address=("127.0.0.1", PUERTO_REMOTO), authkey=b"secreto")
+            manager_remoto.connect()
+            cola_publicaciones_mqtt_salientes = manager_remoto.cola_publicaciones_mqtt_entrantes_del_master()
+            print("Conectado a la cola del vecino en puerto: " + str(PUERTO_REMOTO))
+        except Exception as excepcion:
+            imprimir_error("Error conectando a la cola del vecino.")
+            print(excepcion)
+        time.sleep(1)
+    return True
+
 def suscribirse_a_tema(mqtt_tema):
 
     global cliente_mqtt
-    global cola_publicaciones_mqtt_entrantes
 
     if MODO_SIMULACION_MQTT == True:
-        if cola_publicaciones_mqtt_entrantes is None:
-            try:
-                manager_remoto = MiManager(address=("127.0.0.1", PUERTO_REMOTO), authkey=b"secreto")
-                manager_remoto.connect()
-                cola_publicaciones_mqtt_entrantes = manager_remoto.get_salientes()
-                print("Conectado a la cola del vecino en puerto: " + PUERTO_REMOTO)
-            except Exception as excepcion:
-                imprimir_error("Error conectando a la cola del vecino.")
-                print(excepcion)
-                return False
         return True
 
     if MODO_SIMULACION_MQTT == False:
@@ -145,12 +159,23 @@ def suscribirse_a_tema(mqtt_tema):
             print(mqtt_tema)
         return
 
+def poner_publicacion_mqtt_saliente_en_cola(payload):
+    while True:
+        try:
+            cola_publicaciones_mqtt_salientes.put(payload)
+            return
+        except (ConnectionRefusedError, BrokenPipeError, EOFError):
+            print("Conexión perdida. Intentando reconectar...")
+            if conectar_con_broker_simulado() == True:
+                print("Reconexión lograda.")
+            time.sleep(1)
+
 def publicar_en_tema(mqtt_tema, payload):
 
     global cliente_mqtt
 
     if MODO_SIMULACION_MQTT == True:
-        cola_publicaciones_mqtt_salientes.put(payload)
+        poner_publicacion_mqtt_saliente_en_cola(json.dumps(payload).encode("utf-8"))
         return True
 
     if MODO_SIMULACION_MQTT == False:
@@ -196,15 +221,15 @@ def conectar_con_aws_iot_core():
 def conectar_con_broker():
 
     if MODO_SIMULACION_MQTT == True:
-        return True
+        return conectar_con_broker_simulado()
 
     if MODO_SIMULACION_MQTT == False:
         return conectar_con_aws_iot_core()
 
 def on_publish_received_AWS(publish_packet_data):
-    global cola_publicaciones_mqtt
+    global cola_publicaciones_mqtt_entrantes
     publish_packet = publish_packet_data.publish_packet
-    cola_publicaciones_mqtt.put(publish_packet.payload)
+    cola_publicaciones_mqtt_entrantes.put(publish_packet.payload)
 
 def on_lifecycle_stopped_AWS(lifecycle_stopped_data: mqtt5.LifecycleStoppedData):
     stopped_event.set()
@@ -317,7 +342,7 @@ def parsear_comando_cliente_web(cuerpo_mensaje):
 
         if "color" in cuerpo_mensaje["luz-rgb"]:
             try:
-                int(cuerpo_mensaje["luz-rgb"]["color"], 16)
+                int(cuerpo_mensaje["luz-rgb"]["color"].lstrip('#'), 16)
             except ValueError:
                 return None
             comando = "cambiar color luz rgb " + cuerpo_mensaje["luz-rgb"]["color"]
@@ -341,40 +366,25 @@ def enviar_comando():
         cuerpo_mensaje = payload["cuerpo-mensaje"]
         codigo_mensaje = cabeza_mensaje["codigo-mensaje"]
     except KeyError:
-        print("Recibido mensaje JSON en mal formato desde el cliente web.")
+        imprimir_error("Recibido mensaje JSON en mal formato desde el cliente web.")
         return construir_json_respuesta("error", 500, "Comando con mal formato.", None)
     except Exception:
         imprimir_error("Error inesperado al procesar el mensaje de JSON recibido desde el cliente web.")
         return construir_json_respuesta("error", 500, "Error inesperado en el lado del servidor.", None)
 
     if not codigo_mensaje == codigo_mensaje_comando_luces:
-        print("Recibido mensaje JSON en mal formato desde el cliente web.")
+        imprimir_error("Recibido mensaje JSON en mal formato desde el cliente web.")
         return construir_json_respuesta("error", 500, "Comando con mal formato.", None)
 
     comando = parsear_comando_cliente_web(cuerpo_mensaje)
     if comando is None:
-        print("Recibido mensaje JSON en mal formato desde el cliente web.")
+        imprimir_error("Recibido mensaje JSON en mal formato desde el cliente web.")
         return construir_json_respuesta("error", 500, "Comando con mal formato.", None)
 
-    objeto_futuro_publicacion = cliente_mqtt.publish(mqtt5.PublishPacket(
-        topic=mqtt_tema_comando_luces,
-        payload=json.dumps(payload),
-        qos=mqtt5.QoS.AT_LEAST_ONCE
-    ))
-
-    for numero_intento in range(CANTIDAD_INTENTOS_CONEXION_AWS_IOT_CORE):
-        numero_intento += 1
-        try:
-            objeto_futuro_publicacion.result(TIEMPO_ESPERA_CONEXION_AWS_IOT_CORE)
-            return construir_json_respuesta("success", 200, "Comando enviado a la casita.", None)
-        except concurrent.futures.TimeoutError:
-            print("Intento fallido número " + str(numero_intento) + " al conectar con AWS IOT Core.")
-            if numero_intento == CANTIDAD_INTENTOS_CONEXION_AWS_IOT_CORE:
-                return construir_json_respuesta("error", 500, "No hay conexión con la casita.", None)
-            continue
-        except Exception:
-            imprimir_error("Error inesperado al conectar con AWS IOT Core.")
-            return construir_json_respuesta("error", 500, "No hay conexión con la casita.", None)
+    if publicar_en_tema(mqtt_tema_comando_luces, payload) == True:
+        return construir_json_respuesta("success", 200, "Comando enviado.", None)
+    else:
+        return construir_json_respuesta("error", 500, "Error inesperado al enviar el comando.", None)
 
 def obtener_datos_dynamodb_durante_las_ultimas_24_horas(nombre_tabla):
     global cliente_dynamodb
@@ -413,26 +423,7 @@ def solicitar_estado_luces():
         }
     }
 
-    objeto_futuro_publicacion = cliente_mqtt.publish(mqtt5.PublishPacket(
-        topic=mqtt_tema_solicitud_estado_luces,
-        payload=json.dumps(payload),
-        qos=mqtt5.QoS.AT_LEAST_ONCE
-    ))
-
-    for numero_intento in range(CANTIDAD_INTENTOS_CONEXION_AWS_IOT_CORE):
-        numero_intento += 1
-        try:
-            objeto_futuro_publicacion.result(TIEMPO_ESPERA_CONEXION_AWS_IOT_CORE)
-            break
-        except concurrent.futures.TimeoutError:
-            print("Intento fallido número " + str(numero_intento) + " al conectar con AWS IOT Core.")
-            if numero_intento == CANTIDAD_INTENTOS_CONEXION_AWS_IOT_CORE:
-                print("Se agotó el tiempo de espera al publicar en AWS IOT Core.")
-                return construir_json_respuesta("error", 500, "No hay conexión con la casita.", None)
-            continue
-        except Exception:
-            imprimir_error("Error inesperado al conectar con AWS IOT Core.")
-            return construir_json_respuesta("error", 500, "No hay conexión con la casita.", None)
+    publicar_en_tema(mqtt_tema_solicitud_estado_luces, payload)
 
     evento = threading.Event()
     with candado_clientes_esperando_estado_luces:
@@ -470,78 +461,88 @@ def procesar_publicacion_mqtt(publicacion_mqtt):
 
     try:
         payload_string = publicacion_mqtt.decode("utf-8")
-    except json.JSONDecodeError:
-        print("Recibido mensaje UTF-8 en mal formato desde AWS IOT Core.")
-        return
-    except Exception:
+    except json.JSONDecodeError as excepcion:
+        imprimir_error("Recibido mensaje UTF-8 en mal formato desde AWS IOT Core.")
+        print(excepcion)
+        return False
+    except Exception as excepcion:
         imprimir_error("Error inesperado al procesar el mensaje de UTF-8 recibido desde AWS IOT Core.")
-        return
+        print(excepcion)
+        return False
 
     try:
         payload = json.loads(payload_string)
-    except json.JSONDecodeError:
-        print("Recibido mensaje JSON en mal formato desde AWS IOT Core.")
-        return
-    except Exception:
+    except json.JSONDecodeError as excepcion:
+        imprimir_error("Recibido mensaje JSON en mal formato desde AWS IOT Core.")
+        print(excepcion)
+        return False
+    except Exception as excepcion:
         imprimir_error("Error inesperado al procesar el mensaje de JSON recibido desde AWS IOT Core.")
-        return
+        print(excepcion)
+        return False
 
     try:
         cabeza_mensaje = payload["cabeza-mensaje"]
         cuerpo_mensaje = payload["cuerpo-mensaje"]
         codigo_mensaje = cabeza_mensaje["codigo-mensaje"]
-    except KeyError:
-        print("Recibido mensaje JSON en mal formato desde AWS IOT Core.")
-        return
-    except Exception:
+    except KeyError as excepcion:
+        imprimir_error("Recibido mensaje JSON en mal formato desde AWS IOT Core.")
+        print(excepcion)
+        return False
+    except Exception as excepcion:
         imprimir_error("Error inesperado al procesar el mensaje de JSON recibido desde AWS IOT Core.")
-        return
+        print(excepcion)
+        return False
 
     if codigo_mensaje == codigo_mensaje_datos_estado_luces:
         ultimo_estado_luces_recibido = cuerpo_mensaje
         for evento in clientes_esperando_estado_luces:
             evento.set()
         clientes_esperando_estado_luces.clear()
-        return
+        return True
 
     if codigo_mensaje == codigo_mensaje_datos_telemetria:
         ultima_telemetria_recibida = cuerpo_mensaje
         for evento in clientes_esperando_telemetria:
             evento.set()
         clientes_esperando_telemetria.clear()
-        return
+        return True
 
-def manejar_eventos_cola_publicaciones_mqtt():
-    global cola_publicaciones_mqtt
+def manejar_eventos_cola_publicaciones_mqtt_entrantes():
+    global cola_publicaciones_mqtt_entrantes
     while not evento_terminar_proceso.is_set():
         publicacion_mqtt = None
         try:
-            publicacion_mqtt = cola_publicaciones_mqtt.get(timeout=1)
+            publicacion_mqtt = cola_publicaciones_mqtt_entrantes.get(timeout=1)
         except queue.Empty:
             continue
-        except Exception:
-            print("Ha ocurrido un error inesperado en el momento de leer una publicación de MQTT recibida desde AWS IOT Core.")
+        except Exception as excepcion:
+            imprimir_error("Ha ocurrido un error inesperado en el momento de leer una publicación de MQTT recibida desde AWS IOT Core.")
+            print(excepcion)
             continue
         if publicacion_mqtt is not None:
             procesar_publicacion_mqtt(publicacion_mqtt)
-        cola_publicaciones_mqtt.task_done()
+        cola_publicaciones_mqtt_entrantes.task_done()
 
 if __name__ == "__main__":
 
-    with open("../secretos/aws-endpoint-address.txt", 'r') as archivo:
-        aws_iot_core_endpoint_address = archivo.readline()
+    try:
+        with open("../secretos/aws-endpoint-address.txt", 'r') as archivo:
+            aws_iot_core_endpoint_address = archivo.readline()
+    except Exception as excepcion:
+        print("Error al leer el archivo.")
+        printU(excepcion)
+        limpieza_y_salida(1)
 
-    mensaje_error_conexion_aws_iot_core = conectar_con_aws_iot_core()
-    if mensaje_error_conexion_aws_iot_core is not None:
-        print(mensaje_error_conexion_aws_iot_core)
-        sys.exit(1)
+    if conectar_con_broker() == False:
+        limpieza_y_salida(1)
 
     threading.Thread(
-        target=manejar_eventos_cola_publicaciones_mqtt,
+        target=manejar_eventos_cola_publicaciones_mqtt_entrantes,
         daemon=True
     ).start()
 
     app.run(host="0.0.0.0", port=5001)
 
     evento_terminar_proceso.set()
-    cola_publicaciones_mqtt.put(None)
+    cola_publicaciones_mqtt_entrantes.put(None)

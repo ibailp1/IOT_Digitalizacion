@@ -7,7 +7,7 @@ import inspect
 import os
 
 import queue
-from multiprocessing.managers import BaseManager
+from multiprocessing.managers import SyncManager
 
 import time
 import json
@@ -52,18 +52,21 @@ cliente_mqtt = None
 
 evento_terminar_proceso = threading.Event()
 
-cola_publicaciones_mqtt_salientes = queue.Queue()
-cola_publicaciones_mqtt_entrantes = None
+cola_publicaciones_mqtt_entrantes = queue.Queue()
+cola_publicaciones_mqtt_salientes = None
 
-class MiManager(BaseManager): pass
-MiManager.register("get_salientes", callable=lambda: cola_publicaciones_mqtt_salientes)
-MiManager.register("get_entrantes", callable=lambda: cola_publicaciones_mqtt_entrantes)
+class MiManager(SyncManager): pass
+MiManager.register("cola_publicaciones_mqtt_entrantes_del_master", callable=lambda: cola_publicaciones_mqtt_entrantes)
+MiManager.register("cola_publicaciones_mqtt_entrantes_del_cloud", queue.Queue)
 
 PUERTO_LOCAL = 50001
 PUERTO_REMOTO = 50002
 
 manager_local = MiManager(address=("127.0.0.1", PUERTO_LOCAL), authkey=b"secreto")
-manager_local.get_server().serve_forever(poll_interval=1)
+def iniciar_servidor():
+    server = manager_local.get_server()
+    server.serve_forever()
+threading.Thread(target=iniciar_servidor, daemon=True).start()
 
 # Libero estos recursos antes de cerrar el programa.
 class Recursos:
@@ -87,7 +90,7 @@ def limpieza_y_salida(codigo_de_salida):
                 pass
 
     evento_terminar_proceso.set()
-    cola_publicaciones_mqtt_salientes.put(None)
+    poner_publicacion_mqtt_saliente_en_cola(None)
     sys.exit(codigo_de_salida)
 
 def imprimir_error(mensaje):
@@ -114,7 +117,9 @@ def conectar_con_puerto_serial():
             time.sleep(TIEMPO_ESPERA_ENTRE_INTENTOS_CONEXION_PUERTO_SERIAL)
             continue
         except Exception:
-            return "Error inesperado al conectar con el puerto serial."
+            imprimir_error("Error inesperado al conectar con el puerto serial.")
+            print(excepcion)
+            return False
 
 def crear_cliente_mqtt():
 
@@ -143,22 +148,26 @@ def crear_cliente_mqtt():
             return False
         return True
 
+def conectar_con_broker_simulado():
+    global cola_publicaciones_mqtt_salientes
+    cola_publicaciones_mqtt_salientes = None
+    while cola_publicaciones_mqtt_salientes is None:
+        try:
+            manager_remoto = MiManager(address=("127.0.0.1", PUERTO_REMOTO), authkey=b"secreto")
+            manager_remoto.connect()
+            cola_publicaciones_mqtt_salientes = manager_remoto.cola_publicaciones_mqtt_entrantes_del_cloud()
+            print("Conectado a la cola del vecino en puerto: " + str(PUERTO_REMOTO))
+        except Exception as excepcion:
+            imprimir_error("Error conectando a la cola del vecino.")
+            print(excepcion)
+        time.sleep(1)
+    return
+
 def suscribirse_a_tema(mqtt_tema):
 
     global cliente_mqtt
-    global cola_publicaciones_mqtt_entrantes
 
     if MODO_SIMULACION_MQTT == True:
-        if cola_publicaciones_mqtt_entrantes is None:
-            try:
-                manager_remoto = MiManager(address=("127.0.0.1", PUERTO_REMOTO), authkey=b"secreto")
-                manager_remoto.connect()
-                cola_publicaciones_mqtt_entrantes = manager_remoto.get_salientes()
-                print("Conectado a la cola del vecino en puerto: " + PUERTO_REMOTO)
-            except Exception as excepcion:
-                imprimir_error("Error conectando a la cola del vecino.")
-                print(excepcion)
-                return False
         return True
 
     if MODO_SIMULACION_MQTT == False:
@@ -179,12 +188,23 @@ def suscribirse_a_tema(mqtt_tema):
             print(mqtt_tema)
         return
 
+def poner_publicacion_mqtt_saliente_en_cola(payload):
+    while True:
+        try:
+            cola_publicaciones_mqtt_salientes.put(payload)
+            return
+        except (ConnectionRefusedError, BrokenPipeError, EOFError):
+            print("Conexión perdida. Intentando reconectar...")
+            conectar_con_broker_simulado()
+            print("Reconexión lograda.")
+            time.sleep(1)
+
 def publicar_en_tema(mqtt_tema, payload):
 
     global cliente_mqtt
 
     if MODO_SIMULACION_MQTT == True:
-        cola_publicaciones_mqtt_salientes.put(payload)
+        poner_publicacion_mqtt_saliente_en_cola(json.dumps(payload).encode("utf-8"))
         return True
 
     if MODO_SIMULACION_MQTT == False:
@@ -230,6 +250,7 @@ def conectar_con_aws_iot_core():
 def conectar_con_broker():
 
     if MODO_SIMULACION_MQTT == True:
+        conectar_con_broker_simulado()
         return True
 
     if MODO_SIMULACION_MQTT == False:
@@ -336,31 +357,37 @@ def procesar_publicacion_mqtt(publicacion_mqtt):
 
     try:
         payload_string = publicacion_mqtt.decode("utf-8")
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as excepcion:
         print("Recibido mensaje UTF-8 en mal formato desde AWS IOT Core.")
+        print(excepcion)
         return False
-    except Exception:
+    except Exception as excepcion:
         imprimir_error("Error inesperado al procesar el mensaje de UTF-8 recibido desde AWS IOT Core.")
+        print(excepcion)
         return False
 
     try:
         payload = json.loads(payload_string)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as excepcion:
         print("Recibido mensaje JSON en mal formato desde AWS IOT Core.")
+        print(excepcion)
         return False
-    except Exception:
+    except Exception as excepcion:
         imprimir_error("Error inesperado al procesar el mensaje de JSON recibido desde AWS IOT Core.")
+        print(excepcion)
         return False
 
     try:
         cabeza_mensaje = payload["cabeza-mensaje"]
         cuerpo_mensaje = payload["cuerpo-mensaje"]
         codigo_mensaje = cabeza_mensaje["codigo-mensaje"]
-    except KeyError:
+    except KeyError as excepcion:
         print("Recibido mensaje JSON en mal formato desde AWS IOT Core.")
+        print(excepcion)
         return False
-    except Exception:
+    except Exception as excepcion:
         imprimir_error("Error inesperado al procesar el mensaje de JSON recibido desde AWS IOT Core.")
+        print(excepcion)
         return False
 
     if codigo_mensaje == codigo_mensaje_comando_luces:
@@ -409,8 +436,9 @@ def manejar_eventos_cola_publicaciones_mqtt_entrantes():
             publicacion_mqtt = cola_publicaciones_mqtt_entrantes.get(timeout=1)
         except queue.Empty:
             continue
-        except Exception:
-            print("Ha ocurrido un error inesperado en el momento de leer una publicación de MQTT recibida desde AWS IOT Core.")
+        except Exception as excepcion:
+            imprimir_error("Ha ocurrido un error inesperado en el momento de leer una publicación de MQTT recibida desde AWS IOT Core.")
+            print(excepcion)
             continue
         if publicacion_mqtt is not None:
             procesar_publicacion_mqtt(publicacion_mqtt)
@@ -418,17 +446,18 @@ def manejar_eventos_cola_publicaciones_mqtt_entrantes():
 
 if __name__ == '__main__':
 
-    with open("../secretos/aws-endpoint-address.txt", 'r') as archivo:
-        aws_iot_core_endpoint_address = archivo.readline()
-
-    mensaje_error_conexion_puerto_serial = conectar_con_puerto_serial()
-    if mensaje_error_conexion_puerto_serial is not None:
-        print(mensaje_error_conexion_puerto_serial)
+    try:
+        with open("../secretos/aws-endpoint-address.txt", 'r') as archivo:
+            aws_iot_core_endpoint_address = archivo.readline()
+    except Exception as excepcion:
+        print("Error al leer el archivo.")
+        printU(excepcion)
         limpieza_y_salida(1)
 
-    mensaje_error_conexion_aws_iot_core = conectar_con_aws_iot_core()
-    if mensaje_error_conexion_aws_iot_core is not None:
-        print(mensaje_error_conexion_aws_iot_core)
+    if conectar_con_puerto_serial() == False:
+        limpieza_y_salida(1)
+
+    if conectar_con_broker() == False:
         limpieza_y_salida(1)
 
     threading.Thread(
